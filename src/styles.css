@@ -1,0 +1,781 @@
+/* ============================================================
+ * 设计令牌（Design Tokens）
+ * 全部间距走 4px 基准的 8 阶刻度，圆角/阴影/字色分层命名，
+ * 页面不再出现散落的魔数，是「组件对齐」与「质感提升」的唯一真源。
+ * ============================================================ */
+:root {
+  /* —— 间距刻度（4px 基准） —— */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* —— 语义间距 —— */
+  --gap-inline: var(--sp-2); /* 行内控件间距 */
+  --gap-field: var(--sp-4); /* 表单项之间 */
+  --gap-card: var(--sp-4); /* 卡片之间 */
+  --gap-zone: var(--sp-6); /* 功能分区之间 */
+  --pad-card: var(--sp-5) var(--sp-6); /* 卡片内边距 */
+  --pad-shell: var(--sp-6);
+
+  /* —— 圆角 —— */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+
+  /* —— 色板 —— */
+  --bg: #f3f5f9;
+  --bg-sunken: #eef1f6;
+  --card: #ffffff;
+  --card-muted: #fafbfd;
+  --line: #e3e8ef;
+  --line-strong: #d3dae4;
+  --ink: #16202c;
+  --ink-mid: #3c4a59;
+  --ink-soft: #5b6875;
+  --ink-faint: #8a97a6;
+  --accent: #1f6feb;
+  --accent-soft: #eaf2fe;
+  --ok: #1a7f4b;
+  --err: #c2333b;
+
+  /* —— 阴影分层：弱→强，用于建立层级而非装饰 —— */
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-2: 0 1px 2px rgba(16, 24, 40, 0.05), 0 4px 12px -4px rgba(16, 24, 40, 0.08);
+  --shadow-3: 0 2px 4px rgba(16, 24, 40, 0.06), 0 12px 28px -8px rgba(16, 24, 40, 0.14);
+  --ring: 0 0 0 3px rgba(31, 111, 235, 0.16);
+
+  /* —— 顶栏（深色） —— */
+  --bar: #10161f;
+  --bar-line: #05080c;
+  --bar-ink: #eef2f7;
+  --bar-ink-soft: #9fb0c3;
+
+  --mono: "Cascadia Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
+  --ui: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--ui);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 统一滚动条，避免各面板宽度不一致导致的错位 */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #c8d2de;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #aebbca;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ============================================================
+ * 顶栏：三段式 Grid 布局
+ * 品牌 / 导航 / 状态各自占独立轨道，导航以统一按钮盒对齐，
+ * 不再依赖 flex 的 margin-left:auto 挤压，窗口缩放时不错位。
+ * ============================================================ */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+  align-items: center;
+  gap: var(--sp-5);
+  height: 56px;
+  padding: 0 var(--sp-6);
+  background: var(--bar);
+  color: var(--bar-ink);
+  border-bottom: 1px solid var(--bar-line);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, var(--shadow-2);
+}
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.wordmark b {
+  color: #fff;
+  font-weight: 600;
+}
+
+.wordmark .ver {
+  padding: 1px 6px;
+  font-size: 10.5px;
+  line-height: 16px;
+  color: var(--bar-ink-soft);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--r-xs);
+}
+
+/* 导航：等宽按钮盒 + 底部指示条，选中态不再改变高度 */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 var(--sp-3);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--bar-ink-soft);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.tab:hover {
+  color: #e6edf5;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tab:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.tab.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: var(--sp-3);
+  right: var(--sp-3);
+  bottom: -11px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  font-size: 12px;
+  color: var(--bar-ink-soft);
+  white-space: nowrap;
+}
+
+/* ============================================================
+ * 主体容器
+ * ============================================================ */
+.shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--pad-shell) var(--pad-shell) var(--sp-8);
+}
+
+/* 页面纵向节奏：同级区块统一 gap，替代 margin-bottom 叠加 */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-zone);
+}
+
+/* 主从两列（表单与结果区），断点对齐窗口 minWidth 900 */
+.page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: var(--gap-card);
+  align-items: start;
+}
+
+/* 独立卡片流：按可用宽度自适应列数，卡片等高不留折行缝隙 */
+.zone-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--gap-card);
+  align-items: start;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-card);
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .page-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ============================================================
+ * 卡片 / 功能分区
+ * 头部固定三段结构（标题 / 说明 / 右侧操作），保证所有卡片
+ * 的标题基线、内边距与操作区位置完全一致。
+ * ============================================================ */
+.card {
+  min-width: 0;
+  padding: var(--pad-card);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-2);
+  border-color: var(--line-strong);
+}
+
+/* 兼容旧写法：卡片直接相邻时仍有间距 */
+.card + .card {
+  margin-top: var(--gap-card);
+}
+
+.stack > .card + .card,
+.zone-grid > .card + .card,
+.page-grid .card + .card {
+  margin-top: 0;
+}
+
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-bottom: var(--gap-field);
+}
+
+.card-head-text {
+  min-width: 0;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: 0.2px;
+  color: var(--ink);
+}
+
+/* 标题前的强调竖条，用于建立分区视觉锚点 */
+.card-title::before {
+  content: "";
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--accent);
+  flex: 0 0 auto;
+}
+
+.card-sub {
+  margin: var(--sp-1) 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ink-soft);
+}
+
+.card-head-extra {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 0 0 auto;
+}
+
+/* 卡片体内分区：同一卡片内的二级功能块 */
+.field-group + .field-group {
+  margin-top: var(--gap-zone);
+  padding-top: var(--gap-zone);
+  border-top: 1px solid var(--line);
+}
+
+.field-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.field-group-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--ink-mid);
+}
+
+.field-group-hint {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.section-rule {
+  height: 1px;
+  margin: var(--gap-zone) 0;
+  background: var(--line);
+}
+
+/* ============================================================
+ * 字段对齐：标签宽度固定，控件左边缘严格成一直线
+ * ============================================================ */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0 var(--gap-4);
+}
+
+/* antd 表单微调：标签与控件对齐、控件高度统一 */
+.card .ant-form-item {
+  margin-bottom: var(--gap-field);
+}
+
+.card .ant-form-item-label {
+  padding-bottom: var(--sp-1) !important;
+}
+
+.card .ant-form-item-label > label {
+  height: auto;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.card .ant-form-vertical .ant-form-item-row {
+  min-width: 0;
+}
+
+/* 同排控件高度必须完全一致：输入框内容 20 + 内边距 10 + 边框 2 = 32，
+   与 antd controlHeight(32) 的按钮对齐，消除 1px 参差。
+   用 height 而非 min-height，否则 padding 会把输入框顶到 33px。 */
+.card .ant-input,
+.card .ant-input-affix-wrapper,
+.card .ant-select-single .ant-select-selector,
+.card .ant-input-number,
+.card .ant-btn {
+  height: 32px;
+}
+
+.card .ant-input,
+.card .ant-input-number-input {
+  line-height: 20px;
+}
+
+/* ============================================================
+ * 路径 / 等宽文本
+ * ============================================================ */
+.path-text {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 17px;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+/* ============================================================
+ * 列表行（文件队列 / 配置条目）
+ * ============================================================ */
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 38px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.file-row:hover {
+  background: #fff;
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-1);
+}
+
+.file-row .name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-row .rm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--ink-faint);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.file-row .rm:hover:not(:disabled) {
+  color: var(--err);
+  background: #fdeced;
+}
+
+.file-row .rm:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* 空态占位：与列表行等高，避免切换时页面跳动 */
+.empty-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  padding: var(--sp-4);
+  font-size: 12px;
+  color: var(--ink-soft);
+  text-align: center;
+  background: var(--card-muted);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+}
+
+/* 行内小号空态（用于表格单元格等紧凑位置） */
+.empty-hint.inline {
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--ink-faint);
+}
+
+/* ============================================================
+ * 日志控制台
+ * ============================================================ */
+.console {
+  height: 320px;
+  padding: var(--sp-3) var(--sp-4);
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: #cfdcea;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: #0d141d;
+  border: 1px solid #0a1017;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.console .ln-err {
+  color: #ff9aa2;
+}
+
+.console .ln-warn {
+  color: #ffcf70;
+}
+
+.console .ln-ok {
+  color: #7ee2a8;
+}
+
+.console .ln-cmd {
+  color: #7fb2ff;
+}
+
+.console .ln-muted {
+  color: #7288a0;
+}
+
+/* ============================================================
+ * 键值详情表：描述列定宽，值列统一左对齐
+ * ============================================================ */
+.kv {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: var(--sp-2) var(--sp-4);
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 20px;
+}
+
+.kv dt {
+  color: var(--ink-soft);
+}
+
+.kv dd {
+  margin: 0;
+  font-family: var(--mono);
+  word-break: break-all;
+}
+
+/* ============================================================
+ * 工具类
+ * ============================================================ */
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.text-soft {
+  color: var(--ink-soft);
+}
+
+.text-faint {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+/* ============================================================
+ * 设置页专用结构：工具矩阵 / 路径列表 / 代理输入
+ * 全部用 grid 定宽列，保证不同卡片内同类信息左边缘一致
+ * ============================================================ */
+.tool-matrix {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-2);
+}
+
+.tool-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  background: var(--card-muted);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.tool-cell .tool-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-mid);
+}
+
+.tool-path {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px dashed var(--line);
+}
+
+.path-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+/* 描述列定宽 + 操作列定宽，值的左边缘在整张卡片内成一直线 */
+.path-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 52px;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 36px;
+}
+
+.path-row > .label {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.path-row > .value {
+  min-width: 0;
+}
+
+.path-row > .act {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.proxy-input {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.proxy-input .ant-input {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.field-note {
+  margin: var(--sp-2) 0 0;
+  font-size: 11.5px;
+  line-height: 18px;
+  color: var(--ink-faint);
+}
+
+.note-err {
+  color: var(--err);
+}
+
+.update-state dd {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+/* 卡片底部主操作区：与内容留出固定间隔，不贴边 */
+.section-actions {
+  margin-top: var(--gap-zone);
+  padding-top: var(--gap-field);
+  border-top: 1px solid var(--line);
+}
+
+/* ============================================================
+ * 表格工具条：筛选区左对齐、操作区右对齐，间距统一
+ * ============================================================ */
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--gap-field);
+  padding-bottom: var(--gap-field);
+  border-bottom: 1px solid var(--line);
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-left: auto;
+}
+
+/* 计数类小徽标：统一字重与色彩语义 */
+.history-stats,
+.queue-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.history-stats b {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.queue-stats .ok,
+.history-stats .ok {
+  color: var(--ok);
+}
+
+.queue-stats .fail,
+.history-stats .fail {
+  color: var(--err);
+}
+
+/* 开关标签：文字与控件垂直居中对齐 */
+.switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+/* 别名标签行：与同排输入框高度对齐 */
+.alias-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  min-height: 32px;
+}
+
+/* 复选框标签不得折行：折行会让同排的输入框与按钮下移错位 */
+.card .ant-checkbox-wrapper {
+  white-space: nowrap;
+}
+
+/* 同一紧凑组合内的控件高度对齐 */
+.card .ant-space-compact > .ant-btn,
+.card .ant-space-compact > .ant-checkbox-wrapper {
+  flex: 0 0 auto;
+}

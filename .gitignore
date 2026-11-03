@@ -1,0 +1,32 @@
+# Logs / Node
+logs
+*.log
+npm-debug.log*
+node_modules
+dist
+dist-ssr
+*.local
+
+# Rust / Tauri
+src-tauri/target
+src-tauri/gen
+
+# Bundled signing tools & runtime (fetched locally by scripts/prepare-tools.ps1)
+src-tauri/resources/jre
+src-tauri/resources/lib/apksigner.jar
+src-tauri/resources/zipalign.exe
+
+# App data (history db / profiles dev copies)
+*.db
+*.sqlite
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.sw?
+
+# Session scratch
+.pi/
