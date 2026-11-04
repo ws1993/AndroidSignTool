@@ -109,10 +109,11 @@ fn do_generate(app: &AppHandle, req: &GenerateKeystoreReq) -> Result<PathBuf, St
     };
 
     let keytool_bin = tool_paths::keytool_exe(app)?;
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .map_err(|e| format!("无法定位缓存目录: {e}"))?;
+    let cache = crate::tool_paths::strip_verbatim(
+        app.path()
+            .app_cache_dir()
+            .map_err(|e| format!("无法定位缓存目录: {e}"))?,
+    );
     std::fs::create_dir_all(&cache).map_err(|e| format!("创建缓存目录失败: {e}"))?;
 
     let mut emit = |line: &str| log(app, &req.task_id, line);

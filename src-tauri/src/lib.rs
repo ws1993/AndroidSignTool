@@ -26,6 +26,7 @@ pub fn run() {
             commands::history::history_export,
             commands::history::data_paths,
             commands::system::open_in_explorer,
+            commands::system::test_proxy,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

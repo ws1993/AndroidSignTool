@@ -23,6 +23,26 @@ pub struct SignOutcome {
 /// apksigner 的 `--ks-pass file:<f>` / `--key-pass file:<f>` 语义：**文件内容就是裸密码本身**
 /// （一行，末尾换行会被去掉）。注意不是 `pass:<密码>`——`pass:` 是 source 类型前缀，
 /// 写进文件会变成密码的一部分，导致 "keystore password was incorrect"。
+///
+/// 取子进程输出里最有诊断价值的尾段：apksigner 把真正的失败原因写在最后几行，
+/// 而前面往往是无关的 JVM 警告。空输出时给出明确占位，避免错误信息悬空。
+fn tail_of(lines: &[String]) -> String {
+    let tail: Vec<&str> = lines
+        .iter()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if tail.is_empty() {
+        "apksigner 未输出任何诊断信息".to_string()
+    } else {
+        tail.join(" | ")
+    }
+}
 fn write_pass_file(dir: &Path, tag: &str, pw: &str) -> Result<PathBuf, String> {
     let path = dir.join(format!(".ast-{tag}-pw"));
     fs::write(&path, format!("{pw}\n")).map_err(|e| format!("写入密码临时文件失败: {e}"))?;
@@ -84,9 +104,14 @@ pub fn sign_and_verify(
     let _ = fs::remove_file(&key_pass_file);
     let _ = fs::remove_file(&ks_pass_file);
 
-    let (code, _) = sign_result?;
+    let (code, out) = sign_result?;
     if code != 0 {
-        return Err(format!("apksigner sign 失败（退出码 {code}）"));
+        // 失败时必须带上 apksigner 自己的诊断行：只回一个退出码，
+        // 用户和排障者都无从判断是密码错、keystore 类型不支持还是输出路径不可写。
+        return Err(format!(
+            "apksigner sign 失败（退出码 {code}）：{}",
+            tail_of(&out)
+        ));
     }
     emit(&format!("[apksigner] 签名完成 → {}", output_apk.display()));
 
@@ -114,10 +139,13 @@ pub fn sign_and_verify(
         verify_sdk
             .map(|s| format!(" --min-sdk-version {s} --max-sdk-version {s}"))
             .unwrap_or_default()
-    ));
+        ));
     let (code, out) = run_and_stream(verify, &mut *emit)?;
     if code != 0 {
-        return Err(format!("apksigner verify 校验失败（退出码 {code}）"));
+        return Err(format!(
+            "apksigner verify 校验失败（退出码 {code}）：{}",
+            tail_of(&out)
+        ));
     }
     let cert = out
         .iter()

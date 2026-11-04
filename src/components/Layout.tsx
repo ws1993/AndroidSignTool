@@ -75,3 +75,36 @@ export function ZoneGrid({ children }: { children: ReactNode }) {
 export function Stack({ children }: { children: ReactNode }) {
   return <div className="stack">{children}</div>;
 }
+
+/**
+ * FieldPanel —— 具名功能微面板。
+ * 带有微底色与精细边框，用于卡片内部需要高聚合独立感的功能块（如网络代理、高级参数）。
+ */
+export function FieldPanel({
+  title,
+  desc,
+  extra,
+  children,
+  className,
+}: {
+  title?: ReactNode;
+  desc?: ReactNode;
+  extra?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`field-panel ${className ?? ""}`.trim()}>
+      {title || desc || extra ? (
+        <div className="field-panel-head">
+          <div className="field-panel-title-wrap">
+            {title ? <h4 className="field-panel-title">{title}</h4> : null}
+            {desc ? <span className="field-panel-desc">{desc}</span> : null}
+          </div>
+          {extra ? <div className="field-panel-extra">{extra}</div> : null}
+        </div>
+      ) : null}
+      <div className="field-panel-body">{children}</div>
+    </div>
+  );
+}

@@ -59,10 +59,11 @@ pub fn probe_keystore(
         return Err("请填写密钥库密码".to_string());
     }
     let keytool_bin = tool_paths::keytool_exe(&app)?;
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .map_err(|e| format!("无法定位缓存目录: {e}"))?;
+    let cache = crate::tool_paths::strip_verbatim(
+        app.path()
+            .app_cache_dir()
+            .map_err(|e| format!("无法定位缓存目录: {e}"))?,
+    );
     std::fs::create_dir_all(&cache).map_err(|e| format!("创建缓存目录失败: {e}"))?;
 
     let aliases = keytool::list_aliases(&keytool_bin, Path::new(ks), &store_pass, &cache, &mut |_| {})?;
@@ -98,10 +99,11 @@ pub fn save_profile(app: AppHandle, req: SaveProfileReq) -> Result<ProfileMeta, 
 
     // 验证：密钥库密码可用 + alias 确实存在
     let keytool_bin = tool_paths::keytool_exe(&app)?;
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .map_err(|e| format!("无法定位缓存目录: {e}"))?;
+    let cache = crate::tool_paths::strip_verbatim(
+        app.path()
+            .app_cache_dir()
+            .map_err(|e| format!("无法定位缓存目录: {e}"))?,
+    );
     std::fs::create_dir_all(&cache).map_err(|e| format!("创建缓存目录失败: {e}"))?;
     let aliases = keytool::list_aliases(&keytool_bin, Path::new(&ks), &req.store_pass, &cache, &mut |_| {})?;
     if !aliases.iter().any(|a| a == &alias) {

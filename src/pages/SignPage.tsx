@@ -321,7 +321,7 @@ export default function SignPage() {
                 </Col>
                 <Col span={10}>
                   <Form.Item label="附加选项">
-                    <Space size={16}>
+                    <Space size={16} style={{ height: 32, display: "flex", alignItems: "center" }}>
                       <span className="switch-label">
                         zipalign
                         <Switch size="small" checked={zipalignOn} onChange={setZipalignOn} disabled={busy} />
@@ -394,19 +394,22 @@ export default function SignPage() {
                   </Form.Item>
 
                   <Form.Item style={{ marginBottom: 0 }}>
-                    <Space.Compact style={{ width: "100%" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                       <Checkbox checked={saveProfile} onChange={(e) => setSaveProfile(e.target.checked)}>
                         保存签名
                       </Checkbox>
-                      <Input
-                        value={profileName}
-                        onChange={(e) => setProfileName(e.target.value)}
-                        placeholder="配置名称（下次可一键选用）"
-                      />
-                      <Button onClick={saveCurrentProfile} disabled={busy}>
-                        立即保存
-                      </Button>
-                    </Space.Compact>
+                      <Space.Compact style={{ flex: 1 }}>
+                        <Input
+                          value={profileName}
+                          onChange={(e) => setProfileName(e.target.value)}
+                          placeholder="配置名称（下次可一键选用）"
+                          disabled={!saveProfile || busy}
+                        />
+                        <Button onClick={saveCurrentProfile} disabled={!saveProfile || busy}>
+                          立即保存
+                        </Button>
+                      </Space.Compact>
+                    </div>
                   </Form.Item>
                 </>
               ) : (

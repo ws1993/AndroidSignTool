@@ -234,3 +234,93 @@ fn sign_v1_only_strategy() {
     assert!(super::strategy_compat_warning("v1", Some(28)).is_none());
     assert!(super::strategy_compat_warning("v1", None).is_none());
 }
+
+/// 诊断用例：复刻 GUI 运行时的临时目录位置（`%LOCALAPPDATA%\<identifier>` 下的缓存目录），
+/// 用来判断 apksigner 失败是否与「临时目录位于应用数据目录」有关。
+/// 保留为常驻回归：若将来某台机器上该路径不可写或含特殊字符，这个用例会先炸。
+#[test]
+fn sign_in_appdata_style_tmp_dir() {
+    let res = resources();
+    if !tools_ready(&res) {
+        eprintln!("SKIP: resources 未就绪");
+        return;
+    }
+    let fx = fixture_apk();
+    if !fx.is_file() {
+        eprintln!("SKIP: 缺少夹具");
+        return;
+    }
+
+    // GUI 侧 tmp_dir = app.path().app_cache_dir()，本机实测落在
+    // %LOCALAPPDATA%\com.androidsigntool.desktop。测试里用同形路径。
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Androidsigntool-e2e-cache");
+    // 路径里故意带空格与中文，覆盖最坏情况的目录命名
+    let dir = base.join(format!("run-{}", std::process::id())).join("签名 缓存");
+    fs::create_dir_all(&dir).expect("创建带中文与空格的缓存目录失败");
+
+    let java = res.join("jre").join("bin").join("java.exe");
+    let keytool_exe = res.join("jre").join("bin").join("keytool.exe");
+    let signer_jar = res.join("lib").join("apksigner.jar");
+    let zipalign_exe = res.join("zipalign.exe");
+
+    let pass = "AppDataStylePass1";
+    let alias = "relkey";
+    let ks = dir.join("app.keystore");
+    let _ = fs::remove_file(&ks);
+    let req = keytool::KeyGenReq {
+        keystore_path: ks.clone(),
+        alias: alias.to_string(),
+        store_pass: pass.to_string(),
+        key_pass: pass.to_string(),
+        validity_days: 365,
+        key_size: 2048,
+        common_name: "AppData Style".to_string(),
+        org_unit: "QA".to_string(),
+        org: "Local".to_string(),
+        city: "City".to_string(),
+        state: "State".to_string(),
+        country: "cn".to_string(),
+        tmp_dir: dir.clone(),
+    };
+    keytool::generate(&keytool_exe, &req, &mut quiet).expect("keytool 建钥失败");
+
+    let input = dir.join("in.apk");
+    fs::copy(&fx, &input).expect("复制夹具失败");
+    let aligned = dir.join("aligned.apk");
+    let _ = fs::remove_file(&aligned);
+    zipalign::align(&zipalign_exe, &input, &aligned, &mut quiet).expect("zipalign 失败");
+
+    let out = dir.join("out-signed.apk");
+    let _ = fs::remove_file(&out);
+    let flags = flags_for_strategy("v2_with_v1");
+    let id = IdentityRef {
+        keystore_path: ks.to_str().unwrap(),
+        alias,
+        store_pass: pass,
+        key_pass: pass,
+    };
+    let mut lines: Vec<String> = Vec::new();
+    let r = apksigner::sign_and_verify(
+        &java,
+        &signer_jar,
+        &aligned,
+        &out,
+        &id,
+        &flags,
+        false,
+        None,
+        &dir,
+        &mut |l| lines.push(l.to_string()),
+    );
+    if let Err(e) = &r {
+        eprintln!("诊断：应用风格目录下签名失败 -> {e}");
+        eprintln!("日志：{lines:#?}");
+    }
+    r.expect("应用风格缓存目录下签名失败");
+    assert!(out.is_file(), "签名产物不存在");
+
+    let _ = fs::remove_dir_all(&base);
+}

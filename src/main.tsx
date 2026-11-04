@@ -15,14 +15,16 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       theme={{
         // token 与 styles.css 的 CSS 变量保持同一套数值，
         // 避免 antd 组件与自定义卡片出现圆角/间距/字色的细微不一致。
-        // 避免 antd 组件与自定义卡片出现圆角/间距/字色的细微不一致。
         token: {
           colorPrimary: "#1f6feb",
           colorInfo: "#1f6feb",
-          colorText: "#16202c",
-          colorTextSecondary: "#5b6875",
-          colorBorder: "#d3dae4",
-          colorBorderSecondary: "#e3e8ef",
+          colorSuccess: "#10b981",
+          colorWarning: "#f59e0b",
+          colorError: "#ef4444",
+          colorText: "#0f172a",
+          colorTextSecondary: "#64748b",
+          colorBorder: "#cbd5e1",
+          colorBorderSecondary: "#e2e8f0",
           colorBgContainer: "#ffffff",
           colorBgElevated: "#ffffff",
           borderRadius: 8,
@@ -33,9 +35,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
           lineWidth: 1,
           fontFamily:
             '"Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif',
-          boxShadow: "0 1px 2px rgba(16,24,40,0.05), 0 4px 12px -4px rgba(16,24,40,0.08)",
+          boxShadow: "0 1px 2px 0 rgba(15, 23, 42, 0.05)",
           boxShadowSecondary:
-            "0 2px 4px rgba(16,24,40,0.06), 0 12px 28px -8px rgba(16,24,40,0.14)",
+            "0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 4px 12px -2px rgba(15, 23, 42, 0.04)",
         },
         components: {
           // 表单项间距由 .card .ant-form-item 统一控制，这里只保留基础值

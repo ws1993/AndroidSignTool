@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Tag } from "antd";
+import { Alert } from "antd";
 import HistoryPage from "./pages/HistoryPage";
 import KeystorePage from "./pages/KeystorePage";
 import SettingsPage from "./pages/SettingsPage";
@@ -55,9 +55,12 @@ export default function App() {
           ))}
         </nav>
         <div className="topbar-right">
-          <Tag color={allReady ? "green" : ready ? "orange" : "red"} bordered={false}>
-            {allReady ? "工具链就绪" : ready ? "部分工具缺失" : "内置工具未就绪"}
-          </Tag>
+          <div className="status-indicator">
+            <span className={`status-dot ${allReady ? "ok" : ready ? "warn" : "err"}`} />
+            <span style={{ fontSize: 12, color: "var(--bar-ink-soft)" }}>
+              {allReady ? "工具链就绪" : ready ? "部分工具缺失" : "内置工具未就绪"}
+            </span>
+          </div>
         </div>
       </header>
 

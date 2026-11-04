@@ -138,6 +138,7 @@ export const api = {
   historyExport: (path: string) => invoke<number>("history_export", { path }),
   dataPaths: () => invoke<DataPaths>("data_paths"),
   openInExplorer: (path: string) => invoke<void>("open_in_explorer", { path }),
+  testProxy: (url: string) => invoke<string>("test_proxy", { url }),
 
   onSignLog: (cb: (e: LogEvent) => void): Promise<UnlistenFn> =>
     listen<LogEvent>("sign-log", (ev) => cb(ev.payload)),

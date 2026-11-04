@@ -15,6 +15,8 @@
  *  - custom：显式传入代理 URL，覆盖系统代理。
  */
 
+import { api } from "./api";
+
 export type ProxyMode = "system" | "custom";
 
 export type ProxyConfig = {
@@ -23,6 +25,13 @@ export type ProxyConfig = {
 };
 
 export const DEFAULT_PROXY: ProxyConfig = { mode: "system", url: "" };
+
+export const PRESET_PROXIES = [
+  { label: "Clash (7890)", url: "http://127.0.0.1:7890" },
+  { label: "v2rayN (10809)", url: "http://127.0.0.1:10809" },
+  { label: "Privoxy (8118)", url: "http://127.0.0.1:8118" },
+  { label: "Fiddler (8888)", url: "http://127.0.0.1:8888" },
+];
 
 const STORAGE_KEY = "asts.update.proxy";
 
@@ -127,4 +136,13 @@ export function explainUpdateError(err: unknown, cfg: ProxyConfig): string {
       : `网络请求失败：${text}。若本机需要通过代理访问 GitHub，请在「网络代理」中选择「自定义代理」并填写代理地址。`;
   }
   return `检查更新失败：${text}`;
+}
+
+/** 测试代理连通性并返回握手信息 */
+export async function testProxyConnection(rawUrl: string): Promise<string> {
+  const chk = normalizeProxyUrl(rawUrl);
+  if (!chk.ok) {
+    throw new Error(chk.error);
+  }
+  return await api.testProxy(chk.url);
 }

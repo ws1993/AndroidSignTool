@@ -191,6 +191,7 @@ export default function KeystorePage() {
                       <Select
                         value={keySize}
                         onChange={setKeySize}
+                        style={{ flex: 1 }}
                         options={[
                           { value: 2048, label: "2048 位（推荐）" },
                           { value: 4096, label: "4096 位" },
@@ -298,8 +299,8 @@ export default function KeystorePage() {
                   </Form.Item>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label="生成后保存为签名配置" style={{ marginBottom: 0 }}>
-                    <Space.Compact style={{ width: "100%" }}>
+                  <Form.Item label="生成后保存为配置" style={{ marginBottom: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <Checkbox
                         checked={saveProfile}
                         onChange={(e) => setSaveProfile(e.target.checked)}
@@ -311,8 +312,9 @@ export default function KeystorePage() {
                         onChange={(e) => setProfileName(e.target.value)}
                         disabled={!saveProfile}
                         placeholder="配置名称"
+                        style={{ flex: 1 }}
                       />
-                    </Space.Compact>
+                    </div>
                   </Form.Item>
                 </Col>
               </Row>

@@ -5,7 +5,7 @@
   "identifier": "com.androidsigntool.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:9420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -17,8 +17,7 @@
         "height": 720,
         "minWidth": 900,
         "minHeight": 640,
-        "resizable": true,
-        "additionalBrowserArgs": "--remote-debugging-port=9223 --remote-allow-origins=*"
+        "resizable": true
       }
     ],
     "security": {

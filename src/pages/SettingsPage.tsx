@@ -15,15 +15,24 @@ import type { TableColumnsType } from "antd";
 import { getVersion } from "@tauri-apps/api/app";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { api, type DataPaths, type ProfileMeta, type StrategyOption, type ToolStatus } from "../lib/api";
-import { FieldGroup, Section, ZoneGrid } from "../components/Layout";
+import {
+  api,
+  baseName,
+  type DataPaths,
+  type ProfileMeta,
+  type StrategyOption,
+  type ToolStatus,
+} from "../lib/api";
+import { FieldPanel, Section, ZoneGrid } from "../components/Layout";
 import {
   DEFAULT_PROXY,
+  PRESET_PROXIES,
   explainUpdateError,
   loadProxyConfig,
   maskProxyUrl,
   normalizeProxyUrl,
   saveProxyConfig,
+  testProxyConnection,
   type ProxyConfig,
 } from "../lib/proxy";
 
@@ -41,8 +50,11 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
   const [updateMsg, setUpdateMsg] = useState("");
   const [progress, setProgress] = useState<number | null>(null);
 
-  // —— 检查更新的网络代理配置（默认跟随 Windows 系统代理）——
+  // —— 检查更新的网络代理配置 ——
   const [proxy, setProxy] = useState<ProxyConfig>(DEFAULT_PROXY);
+  const [testingProxy, setTestingProxy] = useState(false);
+  const [testProxyMsg, setTestProxyMsg] = useState<string | null>(null);
+  const [testProxySuccess, setTestProxySuccess] = useState<boolean | null>(null);
 
   useEffect(() => {
     setProxy(loadProxyConfig());
@@ -52,6 +64,8 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
   const applyProxy = useCallback((next: ProxyConfig) => {
     setProxy(next);
     saveProxyConfig(next);
+    setTestProxyMsg(null);
+    setTestProxySuccess(null);
   }, []);
 
   const proxyCheck = useMemo(
@@ -99,9 +113,35 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
     }
   }
 
+  // 连通性测试
+  async function handleTestProxy() {
+    if (proxy.mode !== "custom") return;
+    const r = normalizeProxyUrl(proxy.url);
+    if (!r.ok) {
+      message.warning(r.error);
+      setTestProxyMsg(r.error);
+      setTestProxySuccess(false);
+      return;
+    }
+    setTestingProxy(true);
+    setTestProxyMsg("正在探测代理端口握手…");
+    setTestProxySuccess(null);
+    try {
+      const res = await testProxyConnection(r.url);
+      setTestProxySuccess(true);
+      setTestProxyMsg(res);
+      message.success(res);
+    } catch (e) {
+      const errText = String(e instanceof Error ? e.message : e);
+      setTestProxySuccess(false);
+      setTestProxyMsg(errText);
+      message.error(errText);
+    } finally {
+      setTestingProxy(false);
+    }
+  }
+
   async function doCheck() {
-    // 自定义代理必须先通过校验：错误的 URL 会让插件在 Rust 侧 Url::parse 直接报错，
-    // 提前拦下能给出「该改哪里」而不是一串英文错误。
     let proxyUrl: string | undefined;
     if (proxy.mode === "custom") {
       const r = normalizeProxyUrl(proxy.url);
@@ -114,7 +154,7 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
     }
 
     setChecking(true);
-    setUpdateMsg("");
+    setUpdateMsg("正在检查最新版本…");
     setUpdate(null);
     setProgress(null);
     try {
@@ -173,7 +213,7 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
       ellipsis: true,
       render: (v: string) => (
         <Tooltip title={v}>
-          <span>{v}</span>
+          <span className="mono">{baseName(v)}</span>
         </Tooltip>
       ),
     },
@@ -223,12 +263,6 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
     },
   ];
 
-  const toolTag = (ok: boolean) => (
-    <Tag color={ok ? "green" : "red"} bordered={false}>
-      {ok ? "可用" : "缺失"}
-    </Tag>
-  );
-
   const pathRow = (label: string, value: string | undefined, actionLabel = "定位") => (
     <div className="path-row">
       <span className="label">{label}</span>
@@ -245,18 +279,14 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
 
   return (
     <div className="page">
-      {/* ---------- 分区一：运行环境 ---------- */}
+      {/* ---------- 分区一：运行环境与存储 ---------- */}
       <ZoneGrid>
         <Section
           title="内置工具链"
-          desc={
-            <>
-              安装包内置 jlink 精简 JRE、apksigner.jar 与 zipalign.exe，用户机器无需安装 Java。
-              开发环境需先执行 <code>npm run prepare:tools</code>。
-            </>
-          }
+          desc="安装包内置 jlink 精简 JRE、apksigner 与 zipalign，离线独立运行。"
           extra={
             <Button
+              size="small"
               onClick={() => {
                 loadAll();
                 onReload();
@@ -266,49 +296,97 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
             </Button>
           }
         >
-          <div className="tool-matrix">
-            <div className="tool-cell">
-              <span className="tool-name">java</span>
-              {toolTag(!!tools?.java)}
+          <div className="tool-grid">
+            <div className="tool-card">
+              <div className="tool-card-head">
+                <span className="tool-card-name">java</span>
+                <span className="tool-card-status">
+                  <span className={`status-dot ${tools?.java ? "ok" : "err"}`} />
+                  <span style={{ color: tools?.java ? "var(--ok)" : "var(--err)" }}>
+                    {tools?.java ? "已就绪" : "缺失"}
+                  </span>
+                </span>
+              </div>
+              <div className="tool-card-desc">精简 JRE 运行时</div>
             </div>
-            <div className="tool-cell">
-              <span className="tool-name">keytool</span>
-              {toolTag(!!tools?.keytool)}
+
+            <div className="tool-card">
+              <div className="tool-card-head">
+                <span className="tool-card-name">keytool</span>
+                <span className="tool-card-status">
+                  <span className={`status-dot ${tools?.keytool ? "ok" : "err"}`} />
+                  <span style={{ color: tools?.keytool ? "var(--ok)" : "var(--err)" }}>
+                    {tools?.keytool ? "已就绪" : "缺失"}
+                  </span>
+                </span>
+              </div>
+              <div className="tool-card-desc">密钥与证书管理</div>
             </div>
-            <div className="tool-cell">
-              <span className="tool-name">apksigner</span>
-              {toolTag(!!tools?.apksigner)}
+
+            <div className="tool-card">
+              <div className="tool-card-head">
+                <span className="tool-card-name">apksigner</span>
+                <span className="tool-card-status">
+                  <span className={`status-dot ${tools?.apksigner ? "ok" : "err"}`} />
+                  <span style={{ color: tools?.apksigner ? "var(--ok)" : "var(--err)" }}>
+                    {tools?.apksigner ? "已就绪" : "缺失"}
+                  </span>
+                </span>
+              </div>
+              <div className="tool-card-desc">官方 APK 签名工具</div>
             </div>
-            <div className="tool-cell">
-              <span className="tool-name">zipalign</span>
-              {toolTag(!!tools?.zipalign)}
+
+            <div className="tool-card">
+              <div className="tool-card-head">
+                <span className="tool-card-name">zipalign</span>
+                <span className="tool-card-status">
+                  <span className={`status-dot ${tools?.zipalign ? "ok" : "err"}`} />
+                  <span style={{ color: tools?.zipalign ? "var(--ok)" : "var(--err)" }}>
+                    {tools?.zipalign ? "已就绪" : "缺失"}
+                  </span>
+                </span>
+              </div>
+              <div className="tool-card-desc">4 字节对齐优化</div>
             </div>
           </div>
-          <div className="tool-path">
-            <span className="text-faint">java 路径</span>
-            <span className="path-text">{tools?.javaPath || "—"}</span>
+
+          <div className="tool-path-bar">
+            <span className="path-text">
+              <span className="text-faint" style={{ marginRight: 8 }}>
+                JRE 路径:
+              </span>
+              {tools?.javaPath || "内置/环境变量"}
+            </span>
+            {tools?.javaPath ? (
+              <Button size="small" type="text" onClick={() => reveal(tools.javaPath!)}>
+                定位文件
+              </Button>
+            ) : null}
           </div>
         </Section>
 
         <Section
-          title="本机数据与存储"
-          desc="签名配置里的口令以 Windows 当前用户 DPAPI 加密落盘，换机器 / 换 Windows 账户无法解密；日志与历史永不记录口令。"
+          title="本机存储与安全"
+          desc="口令以 Windows 当前用户 DPAPI 加密落盘，换机器或系统账户无法解密；日志与历史永不记录口令。"
         >
           <div className="path-list">
-            {pathRow("数据目录", paths?.dataDir, "打开")}
-            {pathRow("签名配置", paths?.profiles)}
-            {pathRow("签名历史", paths?.history)}
+            {pathRow("数据主目录", paths?.dataDir, "打开目录")}
+            {pathRow("签名配置库", paths?.profiles, "定位文件")}
+            {pathRow("签名历史库", paths?.history, "定位文件")}
           </div>
         </Section>
       </ZoneGrid>
 
-      {/* ---------- 分区二：签名配置 ---------- */}
+      {/* ---------- 分区二：签名配置管理 ---------- */}
       <Section
         title="已保存的签名配置"
-        desc={`共 ${profiles.length} 条。口令字段不出现在界面与导出内容中。`}
+        desc={`共 ${profiles.length} 条已保存配置。口令经 Windows DPAPI 加密存储，不暴露明文。`}
         extra={
-          <Tooltip title="口令以 Windows DPAPI 加密，仅本机当前用户可解密">
-            <Tag bordered={false}>本机加密</Tag>
+          <Tooltip title="口令经 Windows DPAPI 硬件/账户级加密，仅本机当前用户可解密">
+            <span className="status-indicator">
+              <span className="status-dot ok" />
+              <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>DPAPI 本机加密</span>
+            </span>
           </Tooltip>
         }
       >
@@ -317,108 +395,170 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
           size="small"
           columns={profileColumns}
           dataSource={profiles}
-          pagination={{ pageSize: 6, showSizeChanger: false, size: "small" }}
+          pagination={{ pageSize: 5, showSizeChanger: false, size: "small" }}
           locale={{ emptyText: "暂无签名配置" }}
         />
       </Section>
 
-      {/* ---------- 分区三：软件更新（含网络代理） ---------- */}
+      {/* ---------- 分区三：软件更新与网络设置 ---------- */}
       <Section
-        title="关于与自动更新"
-        desc={
-          <>
-            更新走 GitHub Releases（NSIS 安装包 + <code>latest.json</code> 签名清单），下载后校验
-            minisign 签名再安装。
-          </>
+        title="软件更新与网络设置"
+        desc="更新走 GitHub Releases（NSIS 安装包 + latest.json 签名清单），校验 minisign 签名后安装。"
+        extra={
+          <span className="status-indicator">
+            <span className="status-dot ok" />
+            <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>
+              当前版本 {version ? `v${version}` : "—"}
+            </span>
+          </span>
         }
-        extra={<Tag bordered={false}>当前版本 {version || "—"}</Tag>}
       >
-        <FieldGroup title="更新状态" hint={proxy.mode === "custom" ? "经自定义代理" : "跟随系统代理"}>
-          <div className="kv update-state">
-            <dt>状态</dt>
-            <dd className={update ? undefined : "text-soft"}>
-              <span style={{ fontFamily: "inherit" }}>{updateMsg || "尚未检查"}</span>
-              {update && (
-                <Tooltip title={update.body ?? ""}>
-                  <Tag color="orange" bordered={false} style={{ marginLeft: 8 }}>
-                    {update.version}
-                  </Tag>
-                </Tooltip>
-              )}
-            </dd>
-          </div>
-          {progress !== null && (
-            <Progress
-              percent={progress}
+        {/* 网络代理配置微面板 */}
+        <FieldPanel
+          title="更新网络代理"
+          desc="作用于检查更新与下载安装包；配置仅持久化于本机。"
+          extra={
+            <Radio.Group
+              value={proxy.mode}
+              onChange={(e) => applyProxy({ ...proxy, mode: e.target.value })}
+              optionType="button"
+              buttonStyle="solid"
               size="small"
-              strokeColor="#1f6feb"
-              style={{ marginTop: 12, marginBottom: 0 }}
+              disabled={checking || installing}
+              options={[
+                { label: "跟随系统代理", value: "system" },
+                { label: "自定义代理", value: "custom" },
+              ]}
             />
-          )}
-        </FieldGroup>
-
-        <FieldGroup
-          title="网络代理"
-          hint={
-            proxy.mode === "custom" && proxyCheck?.ok
-              ? `检查与下载均经由 ${maskProxyUrl(proxyCheck.url)}`
-              : "未配置代理时自动读取 Windows 系统代理"
           }
         >
-          <Radio.Group
-            value={proxy.mode}
-            onChange={(e) => applyProxy({ ...proxy, mode: e.target.value })}
-            optionType="button"
-            buttonStyle="solid"
-            disabled={checking || installing}
-            options={[
-              { label: "跟随系统代理", value: "system" },
-              { label: "自定义代理", value: "custom" },
-            ]}
-          />
+          {proxy.mode === "custom" ? (
+            <>
+              <div className="proxy-input-row">
+                <Input
+                  value={proxy.url}
+                  onChange={(e) => applyProxy({ ...proxy, url: e.target.value })}
+                  disabled={checking || installing}
+                  placeholder="例如 http://127.0.0.1:7890"
+                  status={proxyInvalid ? "error" : undefined}
+                  aria-label="更新代理地址"
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  onClick={handleTestProxy}
+                  loading={testingProxy}
+                  disabled={!proxy.url.trim() || proxyInvalid || checking || installing}
+                >
+                  测试连通性
+                </Button>
+                <Button
+                  onClick={() => applyProxy(DEFAULT_PROXY)}
+                  disabled={checking || installing}
+                >
+                  重置
+                </Button>
+              </div>
 
-          <div className="proxy-input">
-            <Input
-              value={proxy.url}
-              onChange={(e) => applyProxy({ ...proxy, url: e.target.value })}
-              disabled={proxy.mode === "system" || checking || installing}
-              placeholder="http://127.0.0.1:25378"
-              status={proxyInvalid ? "error" : undefined}
-              aria-label="更新代理地址"
-            />
-            <Button
-              onClick={() => applyProxy(DEFAULT_PROXY)}
-              disabled={proxy.mode === "system" && !proxy.url}
-            >
-              重置
-            </Button>
+              {/* 常见本地代理快捷预设 */}
+              <div className="preset-chips">
+                <span className="preset-label">快捷填充:</span>
+                {PRESET_PROXIES.map((p) => (
+                  <button
+                    key={p.url}
+                    type="button"
+                    className="preset-btn"
+                    onClick={() => applyProxy({ mode: "custom", url: p.url })}
+                    disabled={checking || installing}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* 连通性测试回显或校验提示 */}
+              <div className="field-note">
+                {testProxyMsg ? (
+                  <span className={testProxySuccess ? "text-ok" : "note-err"}>
+                    <span
+                      className={`status-dot ${testProxySuccess ? "ok" : "err"}`}
+                      style={{ marginRight: 6 }}
+                    />
+                    {testProxyMsg}
+                  </span>
+                ) : proxyInvalid && proxyCheck && !proxyCheck.ok ? (
+                  <span className="note-err">{proxyCheck.error}</span>
+                ) : (
+                  <span>
+                    支持 http / https 代理；支持填写主机与端口（可省略协议，如 127.0.0.1:7890）。
+                  </span>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="field-note">
+              自动读取并跟随当前 Windows 系统的网络代理设置（系统代理未开启时直连）。
+            </div>
+          )}
+        </FieldPanel>
+
+        {/* 版本检查与升级动作面板 */}
+        <FieldPanel title="版本状态与操作">
+          <div className="update-dashboard">
+            <div className="update-banner">
+              <div className="update-banner-left">
+                <span
+                  className={`status-dot ${
+                    update ? "warn" : updateMsg.includes("已是最新") ? "ok" : "muted"
+                  }`}
+                />
+                <div className="update-status-text">
+                  <span>{updateMsg || "尚未检查更新"}</span>
+                  {update ? (
+                    <Tag color="orange" bordered={false} style={{ marginLeft: 8 }}>
+                      最新版本 v{update.version}
+                    </Tag>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="update-banner-actions">
+                <Button
+                  onClick={doCheck}
+                  loading={checking}
+                  disabled={installing}
+                >
+                  检查更新
+                </Button>
+                <Button
+                  type="primary"
+                  disabled={!update || proxyInvalid}
+                  loading={installing}
+                  onClick={doInstall}
+                >
+                  下载并安装
+                </Button>
+              </div>
+            </div>
+
+            {progress !== null ? (
+              <Progress
+                percent={progress}
+                size="small"
+                strokeColor="#1f6feb"
+                style={{ marginTop: 8, marginBottom: 0 }}
+              />
+            ) : null}
+
+            {update?.body ? (
+              <div className="update-notes-box">
+                <b style={{ color: "var(--ink)", display: "block", marginBottom: 4 }}>
+                  更新说明（v{update.version}）：
+                </b>
+                <div style={{ whiteSpace: "pre-wrap" }}>{update.body}</div>
+              </div>
+            ) : null}
           </div>
-
-          <p className="field-note">
-            {proxyInvalid ? (
-              <span className="note-err">{proxyCheck && !proxyCheck.ok ? proxyCheck.error : ""}</span>
-            ) : (
-              <>
-                支持 http / https 代理，可省略协议前缀；该设置同时作用于「检查更新」与「下载安装」。
-                代理地址仅保存在本机。
-              </>
-            )}
-          </p>
-        </FieldGroup>
-
-        <div className="row-actions section-actions">
-          <Button onClick={doCheck} loading={checking} type="primary" ghost>
-            检查更新
-          </Button>
-          <Button
-            type="primary"
-            disabled={!update || proxyInvalid}
-            loading={installing}
-            onClick={doInstall}
-          >
-            下载并安装
-          </Button>
-        </div>
+        </FieldPanel>
       </Section>
     </div>
   );
