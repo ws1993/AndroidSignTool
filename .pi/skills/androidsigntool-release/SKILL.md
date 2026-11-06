@@ -116,3 +116,17 @@ powershell -File scripts\release.ps1 -Version 0.1.0 -DryRun    # 全链路预演
 
 `-DryRun` 的正确终态：代理注入提示 → 版本 SKIP/收敛 → 打印缺失 Secrets → `[DryRun] 计划: ...` → `DryRun 结束：未做任何远端写入`，退出码 0。
 
+
+## CI 侧踩坑（2026-11-06 v0.1.0 首发实测）
+
+9. **`android-actions/setup-android@v3` 在 windows-latest 已不可用**：它会安装 Google 已下架的 `tools` 包 → `Warning: Failed to find package 'tools'` → 退出码 1，后续步骤全部 skipped。已从 workflow 移除，改为 `Ensure Android build-tools 35.0.0` 步骤：先探测 runner 自带 SDK（`ANDROID_HOME`/`ANDROID_SDK_ROOT`/`C:\Android\android-sdk`，递归找 `sdkmanager.bat`），探不到才用官方直链 `commandlinetools-win-11076708_latest.zip` 兜底，然后 `--licenses`（`Get-Content yes.txt | & $mgr --sdk_root=$sdk --licenses` 喂 y）+ `--install "build-tools;35.0.0"`，末尾**硬断言** `lib\apksigner.jar` 与 `zipalign.exe` 存在。该步 `EAP='Continue'`（sdkmanager 大量 Warning 走 stderr），成败只由产物断言决定。
+10. **JDK 必须前置于 sdkmanager**：`sdkmanager.bat` 自身要 java，故 `Setup JDK 21` 已上移到 Android 步骤之前。
+11. **workflow 是从 tag 指向的那个提交读取的**：改了 `.github/workflows/release.yml` 之后，旧 tag 仍指向旧提交，重跑不会用新逻辑。必须 `release.ps1 -Version X.Y.Z -Retag`（回收本地+远端同名标签、在新 HEAD 重打再推）。若该 tag 已产生 Release，`-Retag` 会**拒绝**并要求你先 `gh release delete X.Y.Z --yes`（删标签会连带删 Release，故必须显式确认）。
+
+### 失败重发标准动作
+
+```powershell
+gh run view <RunId> --repo ws1993/AndroidSignTool --log-failed   # 定位
+git checkout -- .; 修 workflow/代码 → 提交 → push origin main
+powershell -File scripts\release.ps1 -Version 0.1.0 -Retag        # 同号重发
+```

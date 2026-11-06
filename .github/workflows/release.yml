@@ -26,19 +26,69 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      # apksigner.jar / zipalign.exe 的来源（prepare-tools.ps1 读 ANDROID_HOME）
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install build-tools 35.0.0
-        run: sdkmanager --install "build-tools;35.0.0"
-
-      # jlink 裁剪内置 JRE 的来源（prepare-tools.ps1 读 JAVA_HOME）
+      # sdkmanager 需要 java，jlink 也需要 JDK，故 JDK 先行
       - name: Setup JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
+
+      # apksigner.jar / zipalign.exe 的来源（prepare-tools.ps1 读 ANDROID_HOME）
+      # 不用 android-actions/setup-android@v3：它会安装 Google 已下架的 'tools' 包 → 退出码 1，后续步骤全部 skip
+      - name: Ensure Android build-tools 35.0.0
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          function Find-Manager([string]$root) {
+              if (-not $root -or -not (Test-Path $root)) { return $null }
+              $hits = @(Get-ChildItem -Path (Join-Path $root 'cmdline-tools') -Filter 'sdkmanager.bat' -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+              if ($hits.Count -gt 0) { return $hits[0] }
+              foreach ($c in @((Join-Path $root 'tools\bin\sdkmanager.bat'), (Join-Path $root 'cmdline-tools\latest\bin\sdkmanager.bat'))) {
+                  if (Test-Path $c) { return $c }
+              }
+              $onPath = Get-Command sdkmanager.bat -ErrorAction SilentlyContinue
+              if (-not $onPath) { $onPath = Get-Command sdkmanager -ErrorAction SilentlyContinue }
+              if ($onPath) { return $onPath.Source }
+              return $null
+          }
+          $cands = @()
+          foreach ($v in 'ANDROID_HOME', 'ANDROID_SDK_ROOT') { if (Test-Path "env:$v") { $cands += (Get-Item "env:$v").Value } }
+          $cands += 'C:\Android\android-sdk'
+          $sdk = $cands | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          $mgr = Find-Manager $sdk
+          if (-not $mgr) {
+              "未找到可用 sdkmanager，改用官方 cmdline-tools 直链兜底"
+              $sdk = Join-Path $env:GITHUB_WORKSPACE 'android-sdk'
+              New-Item -ItemType Directory -Force -Path $sdk | Out-Null
+              $zip = Join-Path $env:RUNNER_TEMP 'cmdline-tools.zip'
+              Invoke-WebRequest -Uri 'https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip' -OutFile $zip -UseBasicParsing
+              Expand-Archive -Path $zip -DestinationPath $sdk -Force
+              $inner = Join-Path $sdk 'cmdline-tools\cmdline-tools'
+              $latest = Join-Path $sdk 'cmdline-tools\latest'
+              if ((Test-Path $inner) -and -not (Test-Path $latest)) { Move-Item $inner $latest -Force }
+              $directBin = Join-Path $sdk 'cmdline-tools\bin'
+              if ((Test-Path $directBin) -and -not (Test-Path $latest)) {
+                  $tmp = Join-Path $env:RUNNER_TEMP 'ctl-latest'
+                  Move-Item (Join-Path $sdk 'cmdline-tools') $tmp -Force
+                  New-Item -ItemType Directory -Force -Path (Join-Path $sdk 'cmdline-tools') | Out-Null
+                  Move-Item $tmp $latest -Force
+              }
+              $mgr = Find-Manager $sdk
+              if (-not $mgr) { throw "兜底后仍未找到 sdkmanager（root=$sdk）" }
+          }
+          "sdk        = $sdk"
+          "sdkmanager = $mgr"
+          $btDir = Join-Path $sdk 'build-tools\35.0.0'
+          if (-not (Test-Path (Join-Path $btDir 'lib\apksigner.jar'))) {
+              $yes = Join-Path $env:RUNNER_TEMP 'yes.txt'
+              [IO.File]::WriteAllText($yes, ("y`r`n" * 40))
+              Get-Content $yes | & $mgr "--sdk_root=$sdk" --licenses 2>&1 | Select-Object -Last 3
+              & $mgr "--sdk_root=$sdk" --install "build-tools;35.0.0" 2>&1 | Select-Object -Last 6
+          } else { "build-tools 35.0.0 已就位，跳过安装" }
+          if (-not (Test-Path (Join-Path $btDir 'lib\apksigner.jar'))) { throw "apksigner.jar 未就位: $btDir" }
+          if (-not (Test-Path (Join-Path $btDir 'zipalign.exe'))) { throw "zipalign.exe 未就位: $btDir" }
+          "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+          "OK build-tools 就绪: $btDir"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

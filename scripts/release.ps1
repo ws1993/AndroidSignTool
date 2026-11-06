@@ -4,6 +4,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version 0.1.1 -DryRun        # 只看计划
 #   powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version 0.1.1 -SetupSecrets  # 同时配 GitHub Secrets（口令交互式输入，不回显）
 #   powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version 0.1.1 -Note "修复对齐"
+#   powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version 0.1.0 -Retag        # CI 失败修复后，同号重推
 # 纪律: 私钥/口令只经管道与进程参数传递，不打印、不落盘、不写入日志。
 [CmdletBinding()]
 param(
@@ -13,7 +14,8 @@ param(
     [string]$Note = 'Android APK 签名工具 Windows 版',
     [switch]$DryRun,
     [switch]$SetupSecrets,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$Retag
 )
 
 $ErrorActionPreference = 'Stop'
@@ -153,12 +155,26 @@ if ($changed.Count -gt 0) {
     }
 } else { "无版本改动，只推 tag" }
 
-$localTags = @(Native git tag --list $Tag)
-if ($localTags.Count -gt 0) { throw "本地标签 $Tag 已存在，发新版请递增版本号。" }
-$remoteOut = @(Native git ls-remote --tags origin "refs/tags/$Tag")
-$remoteCode = $script:NativeCode
-if ($remoteCode -ne 0) { throw "无法确认远端标签（git ls-remote 退出码 $remoteCode，多为网络或凭据问题）：$($remoteOut -join ' | ') → 已中止，未做任何远端写入" }
-if ($remoteOut.Count -gt 0) { throw "远端已存在标签 $Tag（可能已发布过），发新版请递增版本号。" }
+if ($Retag) {
+    "Retag 模式：回收 $Tag 后重推（CI 失败已修复、需同号重发时使用）"
+    if (@(Native git tag --list $Tag).Count -gt 0) { Stream { git tag -d $Tag } | Out-Null }
+    $rmOut = @(Native git ls-remote --tags origin "refs/tags/$Tag")
+    $rmCode = $script:NativeCode
+    if ($rmCode -ne 0) { throw "无法确认远端标签（git ls-remote 退出码 $rmCode）：$($rmOut -join ' | ') → 已中止，未做任何远端写入" }
+    if ($rmOut.Count -gt 0) {
+        $relView = @(Native gh release view $Tag --repo $Repo)
+        if ($script:NativeCode -eq 0) { throw "远端已存在 $Tag 的 Release。请先用 gh release delete $Tag --yes 删除（Release 随标签删除而消失，故必须显式确认）" }
+        $delCode = Stream { git push origin ":refs/tags/$Tag" }
+        if ($delCode -ne 0) { throw "删除远端标签 $Tag 失败（退出码 $delCode），已中止" }
+        "远端旧标签已回收"
+    }
+} else {
+    if (@(Native git tag --list $Tag).Count -gt 0) { throw "本地标签 $Tag 已存在，发新版请递增版本号，或加 -Retag 重推同号。" }
+    $remoteOut = @(Native git ls-remote --tags origin "refs/tags/$Tag")
+    $remoteCode = $script:NativeCode
+    if ($remoteCode -ne 0) { throw "无法确认远端标签（git ls-remote 退出码 $remoteCode，多为网络或凭据问题）：$($remoteOut -join ' | ') → 已中止，未做任何远端写入" }
+    if ($remoteOut.Count -gt 0) { throw "远端已存在标签 $Tag（可能已发布过），发新版请递增版本号，或加 -Retag 重推同号。" }
+}
 if ($DryRun) { "[DryRun] 计划: tag $Tag -> push origin $Branch -> push origin $Tag -> gh run watch" }
 
 Step '4/5 推送触发 Actions'
