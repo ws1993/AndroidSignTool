@@ -64,6 +64,17 @@ function Stream([scriptblock]$Cmd) {
     $LASTEXITCODE
 }
 
+# 推送退避重试：本机代理对 GitHub 的 TLS 隧道会随机重置（实测 SSL_ERROR_SYSCALL），push 本身幂等可安全重试
+function PushRetry([string[]]$GitArgs, [int]$Tries = 4, [int]$DelaySec = 8) {
+    for ($n = 1; $n -le $Tries; $n++) {
+        if ($n -gt 1) { "  第 $n 次重试推送（等待 ${DelaySec}s）..." }
+        $code = Stream { git push @GitArgs }
+        if ($code -eq 0) { return 0 }
+        Start-Sleep -Seconds $DelaySec
+    }
+    return $code
+}
+
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "版本号格式非法: $Version（要求 x.y.z）" }
 
 Step '0/5 工作区状态'
@@ -189,7 +200,7 @@ if ($Retag) {
     if ($rmOut.Count -gt 0) {
         $relView = @(Native gh release view $Tag --repo $Repo)
         if ($script:NativeCode -eq 0) { throw "远端已存在 $Tag 的 Release。请先用 gh release delete $Tag --yes 删除（Release 随标签删除而消失，故必须显式确认）" }
-        $delCode = Stream { git push origin ":refs/tags/$Tag" }
+        $delCode = PushRetry @('origin', ":refs/tags/$Tag")
         if ($delCode -ne 0) { throw "删除远端标签 $Tag 失败（退出码 $delCode），已中止" }
         "远端旧标签已回收"
     }
@@ -204,10 +215,10 @@ if ($DryRun) { "[DryRun] 计划: tag $Tag -> push origin $Branch -> push origin 
 
 Step '4/5 推送触发 Actions'
 if ($DryRun) { "DryRun 结束：未做任何远端写入。" ; exit 0 }
-$PushCode = Stream { git push origin $Branch }
+$PushCode = PushRetry @('origin', $Branch)
 if ($PushCode -ne 0) { throw "推送 $Branch 失败，未推 tag，可安全重试" }
 Stream { git tag -a $Tag -m $Note } | Out-Null
-$TagPushCode = Stream { git push origin $Tag }
+$TagPushCode = PushRetry @('origin', $Tag)
 if ($TagPushCode -ne 0) { throw "推送 tag $Tag 失败（远端分支已更新）。修正后重试: git push origin $Tag" }
 "已推送 $Tag，Actions 应已启动"
 
@@ -224,7 +235,7 @@ if ($Watch -ne 0) {
     "失败排查: gh run view $RunId --repo $Repo --log-failed"
     "回收标签以便同号重试: git tag -d $Tag; git push origin `":refs/tags/$Tag`""
     Stream { git tag -d $Tag } | Out-Null
-    Stream { git push origin ":refs/tags/$Tag" } | Out-Null
+    PushRetry @('origin', ":refs/tags/$Tag") | Out-Null
     "注意：GitHub 上可能残留同名 Draft Release，请在页面删除后重推 tag。"
     throw 'Actions 未成功，Release 产物不完整；tag 已回收，修复后重跑本脚本即可'
 }
