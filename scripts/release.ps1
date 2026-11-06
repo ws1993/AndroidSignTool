@@ -20,6 +20,16 @@ $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
+# 出口规则：GitHub 属境外，本机直连 git/gh 易卡凭据或超时（实测 ls-remote 直连会挂住），故先探测本机代理并会话级注入
+if (Test-NetConnection 127.0.0.1 -Port 25378 -InformationLevel Quiet -WarningAction SilentlyContinue) {
+    $env:HTTP_PROXY = 'http://127.0.0.1:25378';  $env:HTTPS_PROXY = 'http://127.0.0.1:25378'
+    $env:http_proxy = 'http://127.0.0.1:25378';  $env:https_proxy = 'http://127.0.0.1:25378'
+    $env:NO_PROXY = '127.0.0.1,localhost,::1';   $env:no_proxy = '127.0.0.1,localhost,::1'
+    "已注入会话级代理 127.0.0.1:25378（NO_PROXY 含回环，不影响本地服务）"
+} else {
+    "本机代理 25378 未监听，本次 git/gh 走直连"
+}
+
 $Tag = "v$Version"
 $KeyFile = Join-Path $env:USERPROFILE '.tauri\android-sign-tool-updater.key'
 
@@ -143,8 +153,12 @@ if ($changed.Count -gt 0) {
     }
 } else { "无版本改动，只推 tag" }
 
-if (@(Native git tag --list $Tag).Count -gt 0) { throw "本地标签 $Tag 已存在，发新版请递增版本号。" }
-if (@(Native git ls-remote --tags origin "refs/tags/$Tag").Count -gt 0) { throw "远端已存在标签 $Tag（可能已发布过），发新版请递增版本号。" }
+$localTags = @(Native git tag --list $Tag)
+if ($localTags.Count -gt 0) { throw "本地标签 $Tag 已存在，发新版请递增版本号。" }
+$remoteOut = @(Native git ls-remote --tags origin "refs/tags/$Tag")
+$remoteCode = $script:NativeCode
+if ($remoteCode -ne 0) { throw "无法确认远端标签（git ls-remote 退出码 $remoteCode，多为网络或凭据问题）：$($remoteOut -join ' | ') → 已中止，未做任何远端写入" }
+if ($remoteOut.Count -gt 0) { throw "远端已存在标签 $Tag（可能已发布过），发新版请递增版本号。" }
 if ($DryRun) { "[DryRun] 计划: tag $Tag -> push origin $Branch -> push origin $Tag -> gh run watch" }
 
 Step '4/5 推送触发 Actions'

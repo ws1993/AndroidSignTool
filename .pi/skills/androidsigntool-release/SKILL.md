@@ -103,4 +103,16 @@ powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version X.Y.Z -Not
    ```
    之后 Agent 侧即可无人值守跑完：`scripts\release.ps1 -Version 0.1.0`。
    已代设的一半：`TAURI_SIGNING_PRIVATE_KEY`（由本地私钥文件管道写入，值未回显）。
+8. **出口必须走本机代理**：GitHub 属境外，实测直连 `git ls-remote` 会挂住（凭据/TCP 超时），曾因此把"查询失败"误判成"标签已存在"。`release.ps1` 现已在开头自动探测 `127.0.0.1:25378` 并会话级注入 `HTTP(S)_PROXY` + `NO_PROXY=127.0.0.1,localhost,::1`；标签存在性判定也已改为**退出码门控**（`ls-remote` 非 0 直接中止且不做任何远端写入）。手动敲 gh/git 排查时同样先设这几个变量。
+
+## 冒烟测试清单（改动脚本后必跑，均已在 2026-11 验证通过）
+
+```powershell
+powershell -File scripts\bump-version.ps1 -Verify              # 六点位一致
+powershell -File scripts\bump-version.ps1 -Version 0.9.9       # 写入 + 行数守卫
+powershell -File scripts\bump-version.ps1 -Version 0.1.0       # 回退，git diff 须为空
+powershell -File scripts\release.ps1 -Version 0.1.0 -DryRun    # 全链路预演，不写远端
+```
+
+`-DryRun` 的正确终态：代理注入提示 → 版本 SKIP/收敛 → 打印缺失 Secrets → `[DryRun] 计划: ...` → `DryRun 结束：未做任何远端写入`，退出码 0。
 
