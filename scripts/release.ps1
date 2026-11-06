@@ -87,6 +87,24 @@ $Need = @('TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')
 $Missing = @($Need | Where-Object { $SecretList -notcontains $_ })
 if ($Missing) { "缺失 Secrets: $($Missing -join ', ')" } else { 'Secrets 齐备' }
 
+# 零口令前置校验：本地 .pub 侧车必须与 tauri.conf.json 配置的 pubkey 一致
+# （不一致意味着换了私钥却忘了更新公钥，签出的更新客户端必然验签失败；此项无需口令即可判定）
+$PubSidecar = "$KeyFile.pub"
+if (Test-Path $PubSidecar) {
+    $confPubNow = ([IO.File]::ReadAllText((Join-Path $Root 'src-tauri\tauri.conf.json')) | ConvertFrom-Json).plugins.updater.pubkey
+    $sideRaw = ([IO.File]::ReadAllText($PubSidecar)).Trim()
+    $sideSame = ($sideRaw -eq $confPubNow)
+    if (-not $sideSame) {
+        try {
+            $sideTxt = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($sideRaw)).Trim()
+            $confTxt = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($confPubNow)).Trim()
+            $sideSame = ($sideTxt -eq $confTxt)
+        } catch { }
+    }
+    if ($sideSame) { '本地密钥对与 tauri.conf.json 公钥一致（零口令校验通过）' }
+    else { throw '本地 .pub 侧车与 tauri.conf.json 的 pubkey 不一致 → 该私钥签出的更新客户端验签必失败。请重新生成密钥并同步公钥，或改回原密钥。已中止，未做任何远端写入' }
+}
+
 if (($Missing -or $SetupSecrets) -and -not $DryRun) {
     if (-not $SetupSecrets) {
         throw '缺少 updater 签名 Secrets，直接推 tag 会让 Actions 在签名阶段失败。加 -SetupSecrets 由本脚本补配（私钥走管道、口令交互式不回显）。'
@@ -108,17 +126,21 @@ if (($Missing -or $SetupSecrets) -and -not $DryRun) {
         # 配对校验：试签产物 .sig 的 untrusted comment 带 keyId，必须等于 tauri.conf.json 里配置的 pubkey keyId
         $SigFile = "$Probe.sig"
         if (-not (Test-Path $SigFile)) { throw '试签未生成 .sig，无法校验密钥配对，已中止' }
-        $sigLines = [IO.File]::ReadAllLines($SigFile)
+        # 真实格式：.sig = 单层 base64 包裹的 armor 文本；签名行解出 74 字节 = ["ED" 2字节][keyId 8字节 小端][签名 64字节]
+        $sigArmor = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(([IO.File]::ReadAllText($SigFile)).Trim())) -split "`r?`n"
         $sigId = $null
-        # 首选：minisign 签名的 base64 行 = [1字节类型 0xED][8字节 keyId][64字节签名]，与注释文本格式无关
-        foreach ($ln in $sigLines) {
-            $t = "$ln".Trim()
-            if ($t.Length -lt 16) { continue }
-            try { $raw = [Convert]::FromBase64String($t) } catch { continue }
-            if ($raw.Length -ge 10 -and $raw[0] -eq 0xED) { $sigId = (($raw[2..9]) | ForEach-Object { $_.ToString('X2') }) -join ''; break }
+        foreach ($ln in $sigArmor) {
+            $cand = "$ln".Trim()
+            if ($cand.Length -lt 24) { continue }
+            try { $raw = [Convert]::FromBase64String($cand) } catch { continue }
+            if ($raw.Length -ge 10 -and $raw[0] -eq 0x45 -and $raw[1] -eq 0x44) {
+                $rev = $raw[2..9]; [Array]::Reverse($rev)
+                $sigId = ($rev | ForEach-Object { $_.ToString('X2') }) -join ''
+                break
+            }
         }
-        # 次选：untrusted comment 里直接写明的 16 位 hex keyId
-        if (-not $sigId -and $sigLines.Count -ge 1 -and $sigLines[0] -match '([0-9A-Fa-f]{16})') { $sigId = $Matches[1].ToUpper() }
+        # 兜底：armor 注释里直接写明的 16 位 hex keyId
+        if (-not $sigId) { foreach ($ln in $sigArmor) { if ("$ln" -match '([0-9A-Fa-f]{16})') { $sigId = $Matches[1].ToUpper(); break } } }
         $confJson = [IO.File]::ReadAllText((Join-Path $Root 'src-tauri\tauri.conf.json')) | ConvertFrom-Json
         $confPub = $confJson.plugins.updater.pubkey
         $pubText = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($confPub))
