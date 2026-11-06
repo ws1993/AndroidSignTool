@@ -5,6 +5,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version 0.1.1 -SetupSecrets  # 同时配 GitHub Secrets（口令交互式输入，不回显）
 #   powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version 0.1.1 -Note "修复对齐"
 #   powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version 0.1.0 -Retag        # CI 失败修复后，同号重推
+#   powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version 0.1.0 -SetupSecrets  # 重设签名凭据：先本地试签验口令，通过才写 Secret（口令打错时用这条，2 秒出结论，不必烧 CI）
 # 纪律: 私钥/口令只经管道与进程参数传递，不打印、不落盘、不写入日志。
 [CmdletBinding()]
 param(
@@ -15,7 +16,8 @@ param(
     [switch]$DryRun,
     [switch]$SetupSecrets,
     [switch]$Force,
-    [switch]$Retag
+    [switch]$Retag,
+    [switch]$SecretsOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -85,7 +87,7 @@ $Need = @('TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')
 $Missing = @($Need | Where-Object { $SecretList -notcontains $_ })
 if ($Missing) { "缺失 Secrets: $($Missing -join ', ')" } else { 'Secrets 齐备' }
 
-if ($Missing -and -not $DryRun) {
+if (($Missing -or $SetupSecrets) -and -not $DryRun) {
     if (-not $SetupSecrets) {
         throw '缺少 updater 签名 Secrets，直接推 tag 会让 Actions 在签名阶段失败。加 -SetupSecrets 由本脚本补配（私钥走管道、口令交互式不回显）。'
     }
@@ -142,6 +144,7 @@ if ($Missing -and -not $DryRun) {
     $After = @(Native gh secret list --repo $Repo --json name --jq '.[].name')
     foreach ($n in $Need) { if ($After -notcontains $n) { throw "写入后复查仍缺 $n" } }
     'Secrets 复查通过'
+    if ($SecretsOnly) { "凭据已重设并通过本地试签验证。发布请再跑: scripts\release.ps1 -Version $Version$(if ($Retag) { ' -Retag' })"; exit 0 }
 }
 
 Step '3/5 提交与标签'

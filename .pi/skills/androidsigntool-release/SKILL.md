@@ -130,3 +130,9 @@ gh run view <RunId> --repo ws1993/AndroidSignTool --log-failed   # 定位
 git checkout -- .; 修 workflow/代码 → 提交 → push origin main
 powershell -File scripts\release.ps1 -Version 0.1.0 -Retag        # 同号重发
 ```
+12. **签名阶段 `Wrong password for that key` ≠ 流水线坏**：v0.1.0 第二次发版（Run 42160977471）中 `Build + sign + release` 已产出 `AndroidSignTool_0.1.0_x64-setup.exe (34.95 MiB)`，只在最后签名一步因口令解不开私钥而失败。这类问题**绝不要用 CI 重试来试口令**（一轮 15 分钟），改跑：
+    ```powershell
+    powershell -File scripts\release.ps1 -Version 0.1.0 -SetupSecrets -SecretsOnly
+    ```
+    它会先本地试签验口令，通过才写 Secret，写完即退出（不推标签），再由 `release.ps1 -Version 0.1.0` 触发发布。失败会在**写任何 Secret 之前**中止，故可反复输入直到通过。
+    > 注：该本地试签同时完成**两件事**——口令能解开私钥 + 试签产物的 keyId 与 `tauri.conf.json` 配置的 pubkey（`99660971DE1397D0`）同源。故 `-SetupSecrets` 一次通过即代表签名链完整可用。私钥是 `ed25sk…` 加密格式，armor 首行不含 keyId，因此无法在不知道口令的情况下静态验配对，只能靠这条试签。
