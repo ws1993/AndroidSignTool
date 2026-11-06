@@ -138,3 +138,14 @@ powershell -File scripts\release.ps1 -Version 0.1.0 -Retag        # 同号重发
     > 注：该本地试签同时完成**两件事**——口令能解开私钥 + 试签产物的 keyId 与 `tauri.conf.json` 配置的 pubkey（`99660971DE1397D0`）同源。故 `-SetupSecrets` 一次通过即代表签名链完整可用。私钥是 `ed25sk…` 加密格式，armor 首行不含 keyId，因此无法在不知道口令的情况下静态验配对，只能靠这条试签。
 13. **tauri-action 缺 `tagName` 会「静默不上传」且 Run 仍然绿**：v0.1.0 第三次发版（Run 42172519310）口令已对、`.exe`(34.95 MiB) 与 `.exe.sig` 都已产出，日志里却是 `No releaseId or tagName provided, skipping all uploads...` → **没有 Release**，退出码却为 0。已在 `with:` 补 `tagName: 'v__VERSION__'` 与 `releaseName`。教训：**不能只看 CI 绿灯判定发版成功**，必须断言 Release 资产——`release.ps1` 步骤 5 的产物断言正是为此而设（缺 `latest.json`/`.exe`/`.sig` 任一即抛错）。
 14. **注意 `workflow_dispatch` 现在也会发布**：`tagName` 用了 `__VERSION__` 占位符，手动触发时会以当前 `tauri.conf.json` 版本建/复用标签并发布 Release。想纯试跑流水线请用 `release.ps1 -Version X.Y.Z -DryRun`（全程不写远端）。
+
+## 口令从哪来（v0.1.0 首发实测结论）
+
+15. **口令不是"生成"出来的，也不能从私钥反推**：它是当初 `tauri signer generate` 那一步**由人输入**的解锁密码。填一个新随机 GUID 必然 `Wrong password for that key`（GUID 永不重复）。
+16. **本机原口令有留档**：`%USERPROFILE%\.tauri\android-sign-tool-updater.key.password`（32 字符、无尾部换行，与 `.key`/`.key.pub` 同批生成）。已用该值设好 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，并经本地试签确认口令可解锁、签名 keyId 与配置公钥同源。
+    - hygiene 提醒：这是**明文落盘**的口令文件，在 `~/.tauri` 下（不在仓库内，未被提交），建议尽快导入密码管理器后删档或改口令。
+    - 若真丢了：`npx tauri signer generate -w ~/.tauri/android-sign-tool-updater.key -f` 重新生成（`-f` 覆盖，同时产出 `.pub`），把新 pubkey 写进 `tauri.conf.json > plugins > updater > pubkey`，再 `-SetupSecrets` 重设两个 Secret。**注意**：若已有用户装了旧版，旧版永远收不到新版更新，只能引导重装；v0.1.0 是首个发布，无此负担。
+17. **`.sig` 真实格式与 keyId 提取**（写解析前必须先取证，别照抄规范）：`tauri signer sign` 产出的 `.sig` 是**单行 base64 包裹的 armor 文本**，解包后签名行再 base64 解出 74 字节 = `["E" "D"][keyId 8字节 小端][签名 64字节]`。要点：算法字节是 `0x45 0x44`（**不是** `0xED`），且 keyId **小端存储**，需 `[Array]::Reverse` 后才等于 `minisign public key: 99660971DE1397D0` 这种大写十六进制。零口令的快速判据：`.key.pub` 与 `tauri.conf.json` 的 `pubkey` 字符串应完全相同（`release.ps1` 步骤 2 已内置该检查）。
+18. **PowerShell 逗号 = 数组运算符**：`--json status,conclusion` 会被拆成两个参数，经 `Native`/`@splatting` 转发后 gh 报 `Unknown JSON field: "status conclusion"` 或 `accepts at most 1 arg(s)`。**凡逗号列表必须加引号** `--json 'status,conclusion'`。
+19. **`gh run watch` 退出码非零 ≠ 构建失败**：实测 API 端点 `/actions/runs/{id}` 会随机 `EOF` 而 `gh run list` 正常。曾据此误删本地标签（远端删除被 TLS 重置挡住才没造成实际损失）。现步骤 5 已改为：watch 退出码仅供参考，**必须回查真实 `status/conclusion`（view 与 list 双通道互备）**；结论未知时**绝不回收标签**，而是抛错要求人工复核。
+20. **本机代理对 GitHub 的 TLS 隧道会随机重置**（`OpenSSL SSL_connect: SSL_ERROR_SYSCALL`，以及 gh 的 `unexpected EOF`），同一命令重试即可通过。凡幂等的远端写操作一律走 `PushRetry`（默认 4 次、8 秒退避）；读操作在各处带回重试循环。**发版前先 `curl.exe -x http://127.0.0.1:25378 -s -o NUL -w "%{http_code}" https://api.github.com/zen` 探一下**，非 200 就等网络平稳再发，否则会被误判成流水线故障。

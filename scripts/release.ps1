@@ -224,25 +224,65 @@ if ($TagPushCode -ne 0) { throw "推送 tag $Tag 失败（远端分支已更新�
 
 Step '5/5 盯构建与产物校验'
 $RunId = $null
-Start-Sleep -Seconds 10
-$RunIdRaw = @(Native gh run list --repo $Repo --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId'); $RunId = if ($RunIdRaw.Count -ge 1) { "$($RunIdRaw[0])".Trim() } else { $null }
-if (-not $RunId) { throw '推送 tag 后 10 秒内未见到 Actions 运行记录；检查 Actions 是否被禁用或 tag 过滤未命中：gh run list --limit 5' }
+for ($n = 1; $n -le 6; $n++) {
+    Start-Sleep -Seconds 10
+    $RunIdRaw = @(Native gh run list --repo $Repo --workflow release.yml --limit 5 --json databaseId --jq '.[0].databaseId')
+    if ($script:NativeCode -eq 0 -and $RunIdRaw.Count -ge 1 -and "$($RunIdRaw[0])".Trim()) {
+        $RunId = "$($RunIdRaw[0])".Trim(); break
+    }
+    "  RunId 获取第 $n 次未成功（多为 API 抖动），重试..."
+}
+if (-not $RunId) { throw '推送 tag 后仍未取到 Actions 运行记录；检查 Actions 是否被禁用或 tag 未命中：gh run list --repo ' + $Repo + ' --limit 5' }
+"RunId = $RunId"
 Native gh run list --repo $Repo --workflow release.yml --limit 3
-$Watch = Stream { gh run watch $RunId --repo $Repo --exit-status }
-$Watch = [int]$Watch
-"构建监控退出码 = $Watch（0 为成功）  RunId = $RunId"
-if ($Watch -ne 0) {
+$Watch = [int](Stream { gh run watch $RunId --repo $Repo --exit-status })
+"watch 退出码 = $Watch（仅供参考：API 抖动也会使其非零，真实结论以回查为准）"
+
+# 回查真实结论：view 与 list 双通道互为备份（实测 /actions/runs/{id} 会失败而 list 正常）
+$Status = ''; $Conclusion = ''
+for ($n = 1; $n -le 8; $n++) {
+    $rv = @(Native gh run view $RunId --repo $Repo --json 'status,conclusion')
+    if ($script:NativeCode -eq 0 -and $rv.Count -ge 1) {
+        try { $o = ($rv -join '') | ConvertFrom-Json; $Status = "$($o.status)".Trim(); $Conclusion = "$($o.conclusion)".Trim(); break } catch { }
+    }
+    $rl = @(Native gh run list --repo $Repo --workflow release.yml --limit 5 --json 'databaseId,status,conclusion')
+    if ($script:NativeCode -eq 0 -and $rl.Count -ge 1) {
+        try {
+            $arr = ($rl -join "`n") | ConvertFrom-Json
+            $mine = @($arr | Where-Object { "$($_.databaseId)".Trim() -eq $RunId })
+            if ($mine.Count -ge 1) { $Status = "$($mine[0].status)".Trim(); $Conclusion = "$($mine[0].conclusion)".Trim(); break }
+        } catch { }
+    }
+    "  结论回查第 $n 次未取得，等待重试..."
+    Start-Sleep -Seconds 12
+}
+"真实结论 = status:$Status conclusion:$Conclusion"
+if ($Status -ne 'completed') {
+    throw "无法确认 Run $RunId 的结论（status='$Status'），**标签未回收**：请勿盲目重发，先用 gh run view $RunId --repo $Repo 人工复核；确需同号重发再跑 release.ps1 -Version $Version -Retag"
+}
+if ($Conclusion -ne 'success') {
     "失败排查: gh run view $RunId --repo $Repo --log-failed"
-    "回收标签以便同号重试: git tag -d $Tag; git push origin `":refs/tags/$Tag`""
     Stream { git tag -d $Tag } | Out-Null
     PushRetry @('origin', ":refs/tags/$Tag") | Out-Null
-    "注意：GitHub 上可能残留同名 Draft Release，请在页面删除后重推 tag。"
-    throw 'Actions 未成功，Release 产物不完整；tag 已回收，修复后重跑本脚本即可'
+    "注意：GitHub 上若残留同名 Release，需先 gh release delete $Tag --yes 再重推 tag"
+    throw "CI 结论为 $Conclusion，Release 产物不可用；tag 已回收，修复后重跑本脚本即可"
 }
-$Assets = @(Native gh release view $Tag --repo $Repo --json assets --jq '.assets[].name')
+"CI 构建成功"
+
+# 资产断言同样需容抖：读不到就重试，读不到不判失败而是不下结论
+$Assets = @()
+$AssetsOk = $false
+for ($n = 1; $n -le 6; $n++) {
+    $Assets = @(Native gh release view $Tag --repo $Repo --json assets --jq '.assets[].name')
+    if ($script:NativeCode -eq 0 -and $Assets.Count -ge 1) { $AssetsOk = $true; break }
+    "  资产读取第 $n 次未取得（API 抖动？），等待重试..."
+    Start-Sleep -Seconds 10
+}
+if (-not $AssetsOk) { throw "无法读取 $Tag 的 Release 资产（疑似 API 抖动）：标签与 Release 均未回收，请手动 gh release view $Tag --repo $Repo 复核" }
 "Release 产物: $($Assets -join ' | ')"
 foreach ($need in @('latest.json')) { if ($Assets -notcontains $need) { throw "缺少关键产物 $need（updater 热更新会失效）" } }
 if (-not ($Assets | Where-Object { $_ -like '*.exe' })) { throw '缺少 NSIS 安装包产物 .exe' }
 if (-not ($Assets | Where-Object { $_ -like '*.sig' })) { throw '缺少 updater 签名产物 .sig（签名环节未生效）' }
 Native gh release view $Tag --repo $Repo
 "发布完成: https://github.com/$Repo/releases/tag/$Tag"
+exit 0
