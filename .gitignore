@@ -29,4 +29,5 @@ src-tauri/resources/zipalign.exe
 *.sw?
 
 # Session scratch
-.pi/
+.pi/*
+!.pi/skills/
