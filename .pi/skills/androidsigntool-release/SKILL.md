@@ -92,4 +92,15 @@ powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version X.Y.Z -Not
 4. **`$ErrorActionPreference='Stop'` 下 git/gh 的 stderr 进度会抛 NativeCommandError**：git push/commit、gh run watch 正常输出就走 stderr。脚本已用 `Native`（捕获）/`Stream`（`Out-Host` 实时透传并只返回退出码）两个包装解决；新增外部命令调用必须走这两个包装，且用返回码判断成败，不要裸用 `$LASTEXITCODE`（子脚本未显式 `exit` 时它是陈旧值）。
 5. **守卫是内存式的**：`bump-version.ps1` 写入前留快照，写后逐行比对改动行数（`package-lock.json` 必须 2 行、其余各 1 行），超出即判定编码/锚点污染并**自动回滚六个文件**；不依赖 git，因此可以连续 bump，但 `release.ps1` 仍要求工作区干净（无关改动先自行提交，或加 `-Force` 连带提交）。
 6. **`release.ps1 -SetupSecrets` 会先做密钥配对预检**：用私钥+口令本地试签，再读 `.sig` 头部 keyId 与 `tauri.conf.json > plugins > updater > pubkey` 的 `9966...` 比对；口令错或密钥不同源都会**在写任何 Secret 之前**中止。
+7. **口令只能由人在真实终端输入**：`release.ps1 -SetupSecrets` 用 `Read-Host -AsSecureString` 取口令，Agent 的非交互 shell 里会卡住。首次发版请在自己终端跑：
+   ```powershell
+   cd F:\AI\AndroidSignTool
+   powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -Version 0.1.0 -SetupSecrets
+   ```
+   或只补口令这一半（口令全程不回显、不进聊天记录）：
+   ```powershell
+   gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo ws1993/AndroidSignTool
+   ```
+   之后 Agent 侧即可无人值守跑完：`scripts\release.ps1 -Version 0.1.0`。
+   已代设的一半：`TAURI_SIGNING_PRIVATE_KEY`（由本地私钥文件管道写入，值未回显）。
 

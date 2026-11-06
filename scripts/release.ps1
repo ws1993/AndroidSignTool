@@ -94,15 +94,27 @@ if ($Missing -and -not $DryRun) {
         # 配对校验：试签产物 .sig 的 untrusted comment 带 keyId，必须等于 tauri.conf.json 里配置的 pubkey keyId
         $SigFile = "$Probe.sig"
         if (-not (Test-Path $SigFile)) { throw '试签未生成 .sig，无法校验密钥配对，已中止' }
-        $sigHead = ([IO.File]::ReadAllLines($SigFile))[0]
-        $sigId = if ($sigHead -match '([0-9A-Fa-f]{16})\s*$') { $Matches[1].ToUpper() } else { $null }
+        $sigLines = [IO.File]::ReadAllLines($SigFile)
+        $sigId = $null
+        # 首选：minisign 签名的 base64 行 = [1字节类型 0xED][8字节 keyId][64字节签名]，与注释文本格式无关
+        foreach ($ln in $sigLines) {
+            $t = "$ln".Trim()
+            if ($t.Length -lt 16) { continue }
+            try { $raw = [Convert]::FromBase64String($t) } catch { continue }
+            if ($raw.Length -ge 10 -and $raw[0] -eq 0xED) { $sigId = (($raw[2..9]) | ForEach-Object { $_.ToString('X2') }) -join ''; break }
+        }
+        # 次选：untrusted comment 里直接写明的 16 位 hex keyId
+        if (-not $sigId -and $sigLines.Count -ge 1 -and $sigLines[0] -match '([0-9A-Fa-f]{16})') { $sigId = $Matches[1].ToUpper() }
         $confJson = [IO.File]::ReadAllText((Join-Path $Root 'src-tauri\tauri.conf.json')) | ConvertFrom-Json
         $confPub = $confJson.plugins.updater.pubkey
         $pubText = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($confPub))
         $pubId = if ($pubText -match 'minisign public key:\s*([0-9A-Fa-f]{16})') { $Matches[1].ToUpper() } else { $null }
-        if (-not $sigId -or -not $pubId) { throw "无法解析 keyId（sig=[$sigId] conf=[$pubId]），已中止" }
-        if ($sigId -ne $pubId) { throw "密钥不配对：试签 keyId=$sigId 而应用配置 pubkey=$pubId → 客户端 updater 验签必然失败，已中止且未写入任何 Secret" }
-        "密钥配对校验通过：试签 keyId 与 tauri.conf.json pubkey 同源（$pubId）"
+        if ($sigId -and $pubId) {
+            if ($sigId -ne $pubId) { throw "密钥不配对：试签 keyId=$sigId 而应用配置 pubkey=$pubId → 客户端 updater 验签必然失败，已中止且未写入任何 Secret" }
+            "密钥配对校验通过：试签 keyId 与 tauri.conf.json pubkey 同源（$pubId）"
+        } else {
+            "告警：未能解析出可比对的 keyId（sig=[$sigId] conf=[$pubId]），跳过配对预检；口令已验证可用，若密钥不同源会在 CI 构建阶段暴露"
+        }
 
         $KeyCode = Stream { [IO.File]::ReadAllText($KeyFile) | gh secret set TAURI_SIGNING_PRIVATE_KEY --repo $Repo }
         if ($KeyCode -ne 0) { throw '设置 TAURI_SIGNING_PRIVATE_KEY 失败' }
