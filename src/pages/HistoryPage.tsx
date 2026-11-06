@@ -106,8 +106,14 @@ export default function HistoryPage() {
     {
       title: "策略",
       dataIndex: "strategy",
-      width: 150,
-      render: (v: string) => <Tag bordered={false}>{strategyLabel(v)}</Tag>,
+      width: 170,
+      render: (v: string) => (
+        <Tooltip title={strategyLabel(v)}>
+          <Tag bordered={false} className="tag-ellipsis">
+            {strategyLabel(v)}
+          </Tag>
+        </Tooltip>
+      ),
     },
     {
       title: "结果",
@@ -206,6 +212,7 @@ export default function HistoryPage() {
               title="清空全部签名历史？"
               description="仅删除记录，不影响任何 APK / 签名文件。"
               okText="清空"
+              cancelText="取消"
               okButtonProps={{ danger: true }}
               onConfirm={async () => {
                 try {
@@ -227,6 +234,7 @@ export default function HistoryPage() {
         <Table<HistoryRecord>
           rowKey="id"
           size="small"
+          tableLayout="fixed"
           columns={columns}
           dataSource={filtered}
           loading={loading}

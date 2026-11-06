@@ -409,6 +409,17 @@ body {
   line-height: 20px;
 }
 
+/* 带前后缀 / allowClear 的输入（Input.Search 等）多一层 affix-wrapper：
+   它本身已是 32px（border 1×2 + padding-block 5×2 + 内容 20），且 inline-flex 未设
+   align-items: center（antd 默认 stretch）。此时内层 input 若再被上面的
+   height: 32px 命中，会从内容盒顶部向下溢出 12px，浏览器在这 32px 内居中文字，
+   基线比控件视觉中心低 6px（实测）—— 表现为「文字偏下」。
+   故内层 input 放行高度，由 flex 自然落在 20px 内容盒内即居中。 */
+.card .ant-input-affix-wrapper > .ant-input,
+.card .ant-input-affix-wrapper > input.ant-input {
+  height: auto;
+}
+
 /* ============================================================
  * 路径 / 等宽文本
  * ============================================================ */
@@ -637,6 +648,14 @@ body {
   font-weight: 500;
 }
 
+/* 表格内定宽标签：内容超宽时省略号截断，完整文案交给 Tooltip */
+.tag-ellipsis {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ============================================================
  * 设置页专用结构：工具网格 / 路径列表 / 代理配置 / 更新卡片
  * ============================================================ */
@@ -660,7 +679,7 @@ body {
   background: var(--bg-subtle);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  min-height: 72px;
+  min-height: 88px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
 }
 
@@ -672,9 +691,9 @@ body {
 
 .tool-card-head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-2);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 
 .tool-card-name {

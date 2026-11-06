@@ -23,7 +23,7 @@ import {
   type StrategyOption,
   type ToolStatus,
 } from "../lib/api";
-import { FieldPanel, Section, ZoneGrid } from "../components/Layout";
+import { FieldPanel, Section } from "../components/Layout";
 import {
   DEFAULT_PROXY,
   PRESET_PROXIES,
@@ -35,9 +35,13 @@ import {
   testProxyConnection,
   type ProxyConfig,
 } from "../lib/proxy";
+import "./SettingsPage.css";
+
+type SettingsCategory = "profiles" | "runtime" | "updater";
 
 export default function SettingsPage({ onReload }: { onReload: () => void }) {
   const { message } = AntApp.useApp();
+  const [category, setCategory] = useState<SettingsCategory>("profiles");
   const [tools, setTools] = useState<ToolStatus | null>(null);
   const [paths, setPaths] = useState<DataPaths | null>(null);
   const [profiles, setProfiles] = useState<ProfileMeta[]>([]);
@@ -220,8 +224,14 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
     {
       title: "默认策略",
       dataIndex: "strategy",
-      width: 150,
-      render: (v: string) => <Tag bordered={false}>{strategyLabel(v)}</Tag>,
+      width: 170,
+      render: (v: string) => (
+        <Tooltip title={strategyLabel(v)}>
+          <Tag bordered={false} className="tag-ellipsis">
+            {strategyLabel(v)}
+          </Tag>
+        </Tooltip>
+      ),
     },
     {
       title: "创建时间",
@@ -243,6 +253,7 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
             title={`删除配置「${row.name}」？`}
             description="只删除本机加密的口令记录，不会删除签名文件本身。"
             okText="删除"
+            cancelText="取消"
             okButtonProps={{ danger: true }}
             onConfirm={async () => {
               try {
@@ -277,240 +288,321 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
     </div>
   );
 
+  const ready = !!tools && tools.java && tools.apksigner;
+  const allReady = ready && tools!.keytool && tools!.zipalign;
+
+  const navItems = useMemo(
+    () => [
+      {
+        key: "profiles" as const,
+        label: "签名配置",
+        desc: "已存密钥库与别名",
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="7.5" cy="15.5" r="5.5" />
+            <path d="m21 2-9.6 9.6" />
+            <path d="m15.5 7.5 3 3L22 7l-3-3" />
+          </svg>
+        ),
+        badge: `${profiles.length} 条`,
+      },
+      {
+        key: "runtime" as const,
+        label: "环境与存储",
+        desc: "内置工具链与目录",
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+          </svg>
+        ),
+        badge: tools ? (allReady ? "4/4 就绪" : "部分缺失") : "检测中",
+      },
+      {
+        key: "updater" as const,
+        label: "网络与更新",
+        desc: "代理设置与软件更新",
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+            <path d="M2 12h20" />
+          </svg>
+        ),
+        badge: update ? `v${update.version}` : (version ? `v${version}` : "—"),
+      },
+    ],
+    [profiles.length, tools, allReady, update, version],
+  );
+
   return (
-    <div className="page">
-      {/* ---------- 分区一：运行环境与存储 ---------- */}
-      <ZoneGrid>
-        <Section
-          title="内置工具链"
-          desc="安装包内置 jlink 精简 JRE、apksigner 与 zipalign，离线独立运行。"
-          extra={
-            <Button
-              size="small"
-              onClick={() => {
-                loadAll();
-                onReload();
-              }}
+    <div className="settings-layout">
+      {/* ---------- 左侧：层级分类导航 ---------- */}
+      <aside className="settings-sidebar">
+        <nav className="settings-nav-list" role="tablist">
+          {navItems.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              role="tab"
+              aria-selected={category === item.key}
+              className={`settings-nav-item ${category === item.key ? "active" : ""}`}
+              onClick={() => setCategory(item.key)}
             >
-              重新检测
-            </Button>
-          }
-        >
-          <div className="tool-grid">
-            <div className="tool-card">
-              <div className="tool-card-head">
-                <span className="tool-card-name">java</span>
-                <span className="tool-card-status">
-                  <span className={`status-dot ${tools?.java ? "ok" : "err"}`} />
-                  <span style={{ color: tools?.java ? "var(--ok)" : "var(--err)" }}>
-                    {tools?.java ? "已就绪" : "缺失"}
-                  </span>
-                </span>
+              <div className="settings-nav-item-top">
+                <div className="settings-nav-title-wrap">
+                  <span className="settings-nav-icon">{item.icon}</span>
+                  <span>{item.label}</span>
+                </div>
+                {item.badge ? (
+                  <span className="settings-nav-badge">{item.badge}</span>
+                ) : null}
               </div>
-              <div className="tool-card-desc">精简 JRE 运行时</div>
-            </div>
+              <div className="settings-nav-desc">{item.desc}</div>
+            </button>
+          ))}
+        </nav>
+      </aside>
 
-            <div className="tool-card">
-              <div className="tool-card-head">
-                <span className="tool-card-name">keytool</span>
-                <span className="tool-card-status">
-                  <span className={`status-dot ${tools?.keytool ? "ok" : "err"}`} />
-                  <span style={{ color: tools?.keytool ? "var(--ok)" : "var(--err)" }}>
-                    {tools?.keytool ? "已就绪" : "缺失"}
-                  </span>
+      {/* ---------- 右侧：选中的分类内容面板 ---------- */}
+      <div className="settings-content" key={category}>
+        {/* 1. 签名配置管理 */}
+        {category === "profiles" && (
+          <Section
+            title="已保存的签名配置"
+            desc={`共 ${profiles.length} 条已保存配置。口令经 Windows DPAPI 硬件/账户级加密存储，不暴露明文。`}
+            extra={
+              <Tooltip title="口令经 Windows DPAPI 硬件/账户级加密，仅本机当前用户可解密">
+                <span className="status-indicator">
+                  <span className="status-dot ok" />
+                  <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>DPAPI 本机加密</span>
                 </span>
-              </div>
-              <div className="tool-card-desc">密钥与证书管理</div>
-            </div>
-
-            <div className="tool-card">
-              <div className="tool-card-head">
-                <span className="tool-card-name">apksigner</span>
-                <span className="tool-card-status">
-                  <span className={`status-dot ${tools?.apksigner ? "ok" : "err"}`} />
-                  <span style={{ color: tools?.apksigner ? "var(--ok)" : "var(--err)" }}>
-                    {tools?.apksigner ? "已就绪" : "缺失"}
-                  </span>
-                </span>
-              </div>
-              <div className="tool-card-desc">官方 APK 签名工具</div>
-            </div>
-
-            <div className="tool-card">
-              <div className="tool-card-head">
-                <span className="tool-card-name">zipalign</span>
-                <span className="tool-card-status">
-                  <span className={`status-dot ${tools?.zipalign ? "ok" : "err"}`} />
-                  <span style={{ color: tools?.zipalign ? "var(--ok)" : "var(--err)" }}>
-                    {tools?.zipalign ? "已就绪" : "缺失"}
-                  </span>
-                </span>
-              </div>
-              <div className="tool-card-desc">4 字节对齐优化</div>
-            </div>
-          </div>
-
-          <div className="tool-path-bar">
-            <span className="path-text">
-              <span className="text-faint" style={{ marginRight: 8 }}>
-                JRE 路径:
-              </span>
-              {tools?.javaPath || "内置/环境变量"}
-            </span>
-            {tools?.javaPath ? (
-              <Button size="small" type="text" onClick={() => reveal(tools.javaPath!)}>
-                定位文件
-              </Button>
-            ) : null}
-          </div>
-        </Section>
-
-        <Section
-          title="本机存储与安全"
-          desc="口令以 Windows 当前用户 DPAPI 加密落盘，换机器或系统账户无法解密；日志与历史永不记录口令。"
-        >
-          <div className="path-list">
-            {pathRow("数据主目录", paths?.dataDir, "打开目录")}
-            {pathRow("签名配置库", paths?.profiles, "定位文件")}
-            {pathRow("签名历史库", paths?.history, "定位文件")}
-          </div>
-        </Section>
-      </ZoneGrid>
-
-      {/* ---------- 分区二：签名配置管理 ---------- */}
-      <Section
-        title="已保存的签名配置"
-        desc={`共 ${profiles.length} 条已保存配置。口令经 Windows DPAPI 加密存储，不暴露明文。`}
-        extra={
-          <Tooltip title="口令经 Windows DPAPI 硬件/账户级加密，仅本机当前用户可解密">
-            <span className="status-indicator">
-              <span className="status-dot ok" />
-              <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>DPAPI 本机加密</span>
-            </span>
-          </Tooltip>
-        }
-      >
-        <Table<ProfileMeta>
-          rowKey="id"
-          size="small"
-          columns={profileColumns}
-          dataSource={profiles}
-          pagination={{ pageSize: 5, showSizeChanger: false, size: "small" }}
-          locale={{ emptyText: "暂无签名配置" }}
-        />
-      </Section>
-
-      {/* ---------- 分区三：软件更新与网络设置 ---------- */}
-      <Section
-        title="软件更新与网络设置"
-        desc="更新走 GitHub Releases（NSIS 安装包 + latest.json 签名清单），校验 minisign 签名后安装。"
-        extra={
-          <span className="status-indicator">
-            <span className="status-dot ok" />
-            <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>
-              当前版本 {version ? `v${version}` : "—"}
-            </span>
-          </span>
-        }
-      >
-        {/* 网络代理配置微面板 */}
-        <FieldPanel
-          title="更新网络代理"
-          desc="作用于检查更新与下载安装包；配置仅持久化于本机。"
-          extra={
-            <Radio.Group
-              value={proxy.mode}
-              onChange={(e) => applyProxy({ ...proxy, mode: e.target.value })}
-              optionType="button"
-              buttonStyle="solid"
+              </Tooltip>
+            }
+          >
+            <Table<ProfileMeta>
+              rowKey="id"
               size="small"
-              disabled={checking || installing}
-              options={[
-                { label: "跟随系统代理", value: "system" },
-                { label: "自定义代理", value: "custom" },
-              ]}
+              tableLayout="fixed"
+              columns={profileColumns}
+              dataSource={profiles}
+              pagination={{ pageSize: 8, showSizeChanger: false, size: "small" }}
+              locale={{ emptyText: "暂无签名配置，可在「APK 签名」或「生成签名文件」中勾选保存" }}
             />
-          }
-        >
-          {proxy.mode === "custom" ? (
-            <>
-              <div className="proxy-input-row">
-                <Input
-                  value={proxy.url}
-                  onChange={(e) => applyProxy({ ...proxy, url: e.target.value })}
+          </Section>
+        )}
+
+        {/* 2. 运行环境与存储 */}
+        {category === "runtime" && (
+          <>
+            <Section
+              title="内置工具链"
+              desc="安装包内置 jlink 精简 JRE、apksigner 与 zipalign，离线独立运行。"
+              extra={
+                <Button
+                  size="small"
+                  onClick={() => {
+                    loadAll();
+                    onReload();
+                  }}
+                >
+                  重新检测
+                </Button>
+              }
+            >
+              <div className="tool-grid">
+                <div className="tool-card">
+                  <div className="tool-card-head">
+                    <span className="tool-card-name">java</span>
+                    <span className="tool-card-status">
+                      <span className={`status-dot ${tools?.java ? "ok" : "err"}`} />
+                      <span style={{ color: tools?.java ? "var(--ok)" : "var(--err)" }}>
+                        {tools?.java ? "已就绪" : "缺失"}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="tool-card-desc">精简 JRE 运行时</div>
+                </div>
+
+                <div className="tool-card">
+                  <div className="tool-card-head">
+                    <span className="tool-card-name">keytool</span>
+                    <span className="tool-card-status">
+                      <span className={`status-dot ${tools?.keytool ? "ok" : "err"}`} />
+                      <span style={{ color: tools?.keytool ? "var(--ok)" : "var(--err)" }}>
+                        {tools?.keytool ? "已就绪" : "缺失"}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="tool-card-desc">密钥与证书管理</div>
+                </div>
+
+                <div className="tool-card">
+                  <div className="tool-card-head">
+                    <span className="tool-card-name">apksigner</span>
+                    <span className="tool-card-status">
+                      <span className={`status-dot ${tools?.apksigner ? "ok" : "err"}`} />
+                      <span style={{ color: tools?.apksigner ? "var(--ok)" : "var(--err)" }}>
+                        {tools?.apksigner ? "已就绪" : "缺失"}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="tool-card-desc">官方 APK 签名工具</div>
+                </div>
+
+                <div className="tool-card">
+                  <div className="tool-card-head">
+                    <span className="tool-card-name">zipalign</span>
+                    <span className="tool-card-status">
+                      <span className={`status-dot ${tools?.zipalign ? "ok" : "err"}`} />
+                      <span style={{ color: tools?.zipalign ? "var(--ok)" : "var(--err)" }}>
+                        {tools?.zipalign ? "已就绪" : "缺失"}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="tool-card-desc">4 字节对齐优化</div>
+                </div>
+              </div>
+
+              <div className="tool-path-bar">
+                <span className="path-text">
+                  <span className="text-faint" style={{ marginRight: 8 }}>
+                    JRE 路径:
+                  </span>
+                  {tools?.javaPath || "内置/环境变量"}
+                </span>
+                {tools?.javaPath ? (
+                  <Button size="small" type="text" onClick={() => reveal(tools.javaPath!)}>
+                    定位文件
+                  </Button>
+                ) : null}
+              </div>
+            </Section>
+
+            <Section
+              title="本机存储与安全"
+              desc="口令以 Windows 当前用户 DPAPI 加密落盘，换机器或系统账户无法解密；日志与历史永不记录口令。"
+            >
+              <div className="path-list">
+                {pathRow("数据主目录", paths?.dataDir, "打开目录")}
+                {pathRow("签名配置库", paths?.profiles, "定位文件")}
+                {pathRow("签名历史库", paths?.history, "定位文件")}
+              </div>
+            </Section>
+          </>
+        )}
+
+        {/* 3. 网络与更新 */}
+        {category === "updater" && (
+          <Section
+            title="软件更新与网络设置"
+            desc="更新走 GitHub Releases（NSIS 安装包 + latest.json 签名清单），校验 minisign 签名后安装。"
+            extra={
+              <span className="status-indicator">
+                <span className="status-dot ok" />
+                <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>
+                  当前版本 {version ? `v${version}` : "—"}
+                </span>
+              </span>
+            }
+          >
+            {/* 网络代理配置微面板 */}
+            <FieldPanel
+              title="更新网络代理"
+              desc="作用于检查更新与下载安装包；配置仅持久化于本机。"
+              extra={
+                <Radio.Group
+                  value={proxy.mode}
+                  onChange={(e) => applyProxy({ ...proxy, mode: e.target.value })}
+                  optionType="button"
+                  buttonStyle="solid"
+                  size="small"
                   disabled={checking || installing}
-                  placeholder="例如 http://127.0.0.1:7890"
-                  status={proxyInvalid ? "error" : undefined}
-                  aria-label="更新代理地址"
-                  style={{ flex: 1 }}
+                  options={[
+                    { label: "跟随系统代理", value: "system" },
+                    { label: "自定义代理", value: "custom" },
+                  ]}
                 />
-                <Button
-                  onClick={handleTestProxy}
-                  loading={testingProxy}
-                  disabled={!proxy.url.trim() || proxyInvalid || checking || installing}
-                >
-                  测试连通性
-                </Button>
-                <Button
-                  onClick={() => applyProxy(DEFAULT_PROXY)}
-                  disabled={checking || installing}
-                >
-                  重置
-                </Button>
-              </div>
-
-              {/* 常见本地代理快捷预设 */}
-              <div className="preset-chips">
-                <span className="preset-label">快捷填充:</span>
-                {PRESET_PROXIES.map((p) => (
-                  <button
-                    key={p.url}
-                    type="button"
-                    className="preset-btn"
-                    onClick={() => applyProxy({ mode: "custom", url: p.url })}
-                    disabled={checking || installing}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* 连通性测试回显或校验提示 */}
-              <div className="field-note">
-                {testProxyMsg ? (
-                  <span className={testProxySuccess ? "text-ok" : "note-err"}>
-                    <span
-                      className={`status-dot ${testProxySuccess ? "ok" : "err"}`}
-                      style={{ marginRight: 6 }}
+              }
+            >
+              {proxy.mode === "custom" ? (
+                <>
+                  <div className="proxy-input-row">
+                    <Input
+                      value={proxy.url}
+                      onChange={(e) => applyProxy({ ...proxy, url: e.target.value })}
+                      disabled={checking || installing}
+                      placeholder="例如 http://127.0.0.1:7890"
+                      status={proxyInvalid ? "error" : undefined}
+                      aria-label="更新代理地址"
+                      style={{ flex: 1 }}
                     />
-                    {testProxyMsg}
-                  </span>
-                ) : proxyInvalid && proxyCheck && !proxyCheck.ok ? (
-                  <span className="note-err">{proxyCheck.error}</span>
-                ) : (
-                  <span>
-                    支持 http / https 代理；支持填写主机与端口（可省略协议，如 127.0.0.1:7890）。
-                  </span>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="field-note">
-              自动读取并跟随当前 Windows 系统的网络代理设置（系统代理未开启时直连）。
-            </div>
-          )}
-        </FieldPanel>
+                    <Button
+                      onClick={handleTestProxy}
+                      loading={testingProxy}
+                      disabled={!proxy.url.trim() || proxyInvalid || checking || installing}
+                    >
+                      测试连通性
+                    </Button>
+                    <Button
+                      onClick={() => applyProxy(DEFAULT_PROXY)}
+                      disabled={checking || installing}
+                    >
+                      重置
+                    </Button>
+                  </div>
 
-        {/* 版本检查与升级动作面板 */}
-        <FieldPanel title="版本状态与操作">
-          <div className="update-dashboard">
-            <div className="update-banner">
-              <div className="update-banner-left">
-                <span
-                  className={`status-dot ${
-                    update ? "warn" : updateMsg.includes("已是最新") ? "ok" : "muted"
-                  }`}
-                />
+                  {/* 常见本地代理快捷预设 */}
+                  <div className="preset-chips">
+                    <span className="preset-label">快捷填充:</span>
+                    {PRESET_PROXIES.map((p) => (
+                      <button
+                        key={p.url}
+                        type="button"
+                        className="preset-btn"
+                        onClick={() => applyProxy({ mode: "custom", url: p.url })}
+                        disabled={checking || installing}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* 连通性测试回显或校验提示 */}
+                  <div className="field-note">
+                    {testProxyMsg ? (
+                      <span className={testProxySuccess ? "text-ok" : "note-err"}>
+                        <span
+                          className={`status-dot ${testProxySuccess ? "ok" : "err"}`}
+                          style={{ marginRight: 6 }}
+                        />
+                        {testProxyMsg}
+                      </span>
+                    ) : proxyInvalid && proxyCheck && !proxyCheck.ok ? (
+                      <span className="note-err">{proxyCheck.error}</span>
+                    ) : (
+                      <span>
+                        支持 http / https 代理；支持填写主机与端口（可省略协议，如 127.0.0.1:7890）。
+                      </span>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="field-note">
+                  自动读取并跟随当前 Windows 系统的网络代理设置（系统代理未开启时直连）。
+                </div>
+              )}
+            </FieldPanel>
+
+            {/* 版本检查与升级动作面板 */}
+            <FieldPanel title="版本状态与操作">
+              <div className="update-dashboard">
+                <div className="update-banner">
+                  <div className="update-banner-left">
+                    <span
+                      className={`status-dot ${
+                        update ? "warn" : updateMsg.includes("已是最新") ? "ok" : "muted"
+                      }`}
+                    />
                 <div className="update-status-text">
                   <span>{updateMsg || "尚未检查更新"}</span>
                   {update ? (
@@ -560,6 +652,8 @@ export default function SettingsPage({ onReload }: { onReload: () => void }) {
           </div>
         </FieldPanel>
       </Section>
+    )}
+      </div>
     </div>
   );
 }

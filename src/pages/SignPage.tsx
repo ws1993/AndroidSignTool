@@ -1,23 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   App as AntApp,
+  Badge,
   Button,
   Checkbox,
   Col,
   Form,
   Input,
-  Popconfirm,
-  Radio,
   Row,
+  Segmented,
   Select,
   Space,
   Switch,
+  Tabs,
   Tag,
   Tooltip,
 } from "antd";
 import { open } from "@tauri-apps/plugin-dialog";
 import LogConsole from "../components/LogConsole";
-import { FieldGroup, PageGrid, Section } from "../components/Layout";
+import { PageGrid, Section } from "../components/Layout";
 import {
   api,
   baseName,
@@ -28,6 +29,7 @@ import {
   type ProfileMeta,
   type StrategyOption,
 } from "../lib/api";
+import "./SignPage.css";
 
 type ItemState = "idle" | "running" | "ok" | "fail";
 type QueueItem = { path: string; state: ItemState; note?: string; taskId?: string };
@@ -49,7 +51,8 @@ export default function SignPage() {
   const [v4, setV4] = useState(false);
   const [zipalignOn, setZipalignOn] = useState(true);
 
-  const [mode, setMode] = useState<"file" | "profile">("file");
+  // 凭据模式：优先使用已保存配置（若无则切至指定文件）
+  const [mode, setMode] = useState<"profile" | "file">("profile");
   const [profileId, setProfileId] = useState<number | undefined>(undefined);
   const [ks, setKs] = useState("");
   const [alias, setAlias] = useState("");
@@ -64,10 +67,20 @@ export default function SignPage() {
   const [logs, setLogs] = useState<string[]>([]);
   const myTasks = useRef<Set<string>>(new Set());
 
+  // 右侧工作台活动 Tab（"info" 属性检查 | "logs" 执行日志）
+  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<"info" | "logs">("info");
+
   const reloadProfiles = useCallback(() => {
     api
       .listProfiles()
-      .then(setProfiles)
+      .then((list) => {
+        setProfiles(list);
+        if (list.length > 0) {
+          setProfileId((prev) => (prev !== undefined && list.some((p) => p.id === prev) ? prev : list[0].id));
+        } else {
+          setMode("file");
+        }
+      })
       .catch((e) => message.error(String(e)));
   }, [message]);
 
@@ -197,6 +210,8 @@ export default function SignPage() {
     if (saveProfile && !profileName.trim()) return message.warning("请填写要保存的签名配置名称");
 
     setBusy(true);
+    // 自动平滑切至实时执行日志
+    setActiveWorkbenchTab("logs");
     setLogs((p) => [...p, `# 开始批量签名，共 ${items.length} 个文件`]);
     let okCount = 0;
     for (const item of items) {
@@ -260,9 +275,14 @@ export default function SignPage() {
     () =>
       profiles.map((p) => ({
         value: p.id,
-        label: `${p.name} · ${p.alias} · ${p.keystorePath.split(/[\\/]/).pop()}`,
+        label: `${p.name} · ${p.alias} (${p.keystorePath.split(/[\\/]/).pop()})`,
       })),
     [profiles],
+  );
+
+  const activeProfile = useMemo(
+    () => profiles.find((p) => p.id === profileId),
+    [profiles, profileId],
   );
 
   const doneCount = queue.filter((x) => x.state === "ok").length;
@@ -270,189 +290,316 @@ export default function SignPage() {
 
   return (
     <PageGrid>
-      {/* ---------- 左：签名参数 ---------- */}
+      {/* ============================================================
+       * 左栏：配置流水线 (Step 1 -> Step 2 -> Step 3 -> Action Bar)
+       * ============================================================ */}
       <div className="stack">
+        {/* 步骤 1：待签文件与输出 */}
         <Section
-          title="签名参数"
-          desc="密码经临时文件传递给 apksigner，不出现在进程命令行；勾选「保存签名」后口令以 Windows 当前用户加密（DPAPI）落盘。"
+          title={
+            <span className="sign-step-head">
+              <span className="sign-step-num">1</span>
+              待签 APK 与输出目标
+            </span>
+          }
+          desc="添加待签名的 APK 文件；支持批量多选、路径粘贴与输出目录自定义。"
+          extra={
+            queue.length ? (
+              <Tag color="processing" bordered={false}>
+                已入队 {queue.length} 个
+              </Tag>
+            ) : null
+          }
         >
           <Form layout="vertical">
-            <FieldGroup title="输入与输出" hint="支持多选或粘贴路径">
-              <Form.Item label="APK 文件（选择或粘贴路径，可多个）">
-                <Space.Compact style={{ width: "100%" }}>
-                  <Input
-                    value={apkInput}
-                    onChange={(e) => setApkInput(e.target.value)}
-                    onPressEnter={flushApkInput}
-                    placeholder={
-                      queue.length
-                        ? `${queue.length} 个文件已加入队列，可继续粘贴路径后回车`
-                        : "粘贴 APK 路径，多个用 ; 分隔"
-                    }
-                  />
-                  <Button onClick={flushApkInput} disabled={busy || !apkInput.trim()}>
-                    加入队列
-                  </Button>
-                  <Button type="primary" onClick={pickApks} disabled={busy}>
-                    选择文件
-                  </Button>
-                </Space.Compact>
-              </Form.Item>
+            <Form.Item label="APK 文件路径" style={{ marginBottom: 12 }}>
+              <Space.Compact style={{ width: "100%" }}>
+                <Input
+                  value={apkInput}
+                  onChange={(e) => setApkInput(e.target.value)}
+                  onPressEnter={flushApkInput}
+                  placeholder={
+                    queue.length
+                      ? `${queue.length} 个文件在右侧队列中，可继续粘贴路径并回车加入`
+                      : "粘贴本地 APK 路径（多个文件用 ; 分隔）"
+                  }
+                  disabled={busy}
+                />
+                <Button onClick={flushApkInput} disabled={busy || !apkInput.trim()}>
+                  加入队列
+                </Button>
+                <Button type="primary" onClick={pickApks} disabled={busy}>
+                  浏览文件
+                </Button>
+              </Space.Compact>
+            </Form.Item>
 
-              <Form.Item label="输出目录（留空 = 与源文件同目录，输出名 xxx-signed.apk）">
-                <Space.Compact style={{ width: "100%" }}>
-                  <Input value={outDir} onChange={(e) => setOutDir(e.target.value)} placeholder="默认与 APK 同目录" />
-                  <Button onClick={pickOutDir} disabled={busy}>
-                    选择目录
-                  </Button>
-                </Space.Compact>
-              </Form.Item>
+            <Form.Item
+              label="签名输出目录"
+              style={{ marginBottom: 0 }}
+              tooltip="留空将默认在源 APK 同级目录下生成 xxx-signed.apk"
+            >
+              <Space.Compact style={{ width: "100%" }}>
+                <Input
+                  value={outDir}
+                  onChange={(e) => setOutDir(e.target.value)}
+                  placeholder="默认输出至源 APK 同目录"
+                  disabled={busy}
+                />
+                <Button onClick={pickOutDir} disabled={busy}>
+                  选择目录
+                </Button>
+              </Space.Compact>
+            </Form.Item>
+          </Form>
+        </Section>
 
-              <Row gutter={16}>
-                <Col span={14}>
-                  <Form.Item label="签名策略">
+        {/* 步骤 2：签名身份凭据 */}
+        <Section
+          title={
+            <span className="sign-step-head">
+              <span className="sign-step-num">2</span>
+              签名身份凭据
+            </span>
+          }
+          desc="口令经系统临时隔离管道传递，支持 Windows DPAPI 本机加密存储。"
+        >
+          <div className="sign-mode-switch-wrap">
+            <Segmented
+              block
+              value={mode}
+              onChange={(v) => setMode(v as "profile" | "file")}
+              disabled={busy}
+              options={[
+                {
+                  label: `⚡ 选用已保存配置 (${profiles.length})`,
+                  value: "profile",
+                },
+                {
+                  label: "📁 自定义签名文件",
+                  value: "file",
+                },
+              ]}
+            />
+          </div>
+
+          <Form layout="vertical">
+            {mode === "profile" ? (
+              profiles.length === 0 ? (
+                <div className="profile-empty-alert">
+                  暂未检测到已保存的签名配置。请切换至「自定义签名文件」输入并保存，或在设置页面添加。
+                </div>
+              ) : (
+                <>
+                  <Form.Item label="选择签名配置" style={{ marginBottom: 8 }}>
                     <Select
-                      value={strategy}
-                      onChange={setStrategy}
-                      options={strategies}
+                      value={profileId}
+                      onChange={setProfileId}
+                      options={profileOptions}
+                      placeholder="选择本机已保存的签名配置"
                       disabled={busy}
                     />
                   </Form.Item>
-                </Col>
-                <Col span={10}>
-                  <Form.Item label="附加选项">
-                    <Space size={16} style={{ height: 32, display: "flex", alignItems: "center" }}>
-                      <span className="switch-label">
-                        zipalign
-                        <Switch size="small" checked={zipalignOn} onChange={setZipalignOn} disabled={busy} />
-                      </span>
-                      <span className="switch-label">
-                        V4 增量签名
-                        <Switch size="small" checked={v4} onChange={setV4} disabled={busy} />
-                      </span>
-                    </Space>
-                  </Form.Item>
-                </Col>
-              </Row>
-            </FieldGroup>
 
-            <FieldGroup title="签名身份" hint="口令不会写入历史与日志">
-              <Form.Item label="身份来源">
-                <Radio.Group
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value)}
-                  optionType="button"
-                  buttonStyle="solid"
-                  disabled={busy}
-                  options={[
-                    { label: "使用指定文件", value: "file" },
-                    { label: "使用已配置签名", value: "profile" },
-                  ]}
-                />
-              </Form.Item>
-
-              {mode === "file" ? (
-                <>
-                  <Form.Item label="签名文件（.keystore / .jks / .p12）">
-                    <Space.Compact style={{ width: "100%" }}>
-                      <Input value={ks} onChange={(e) => setKs(e.target.value)} placeholder="C:\path\to\release.keystore" />
-                      <Button onClick={pickKeystore} disabled={busy}>
-                        选择
-                      </Button>
-                    </Space.Compact>
-                  </Form.Item>
-
-                  <Row gutter={16}>
-                    <Col span={12}>
-                      <Form.Item label="密钥库密码">
-                        <Input.Password value={storePass} onChange={(e) => setStorePass(e.target.value)} autoComplete="new-password" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={12}>
-                      <Form.Item label="密钥密码（留空 = 同密钥库密码）">
-                        <Input.Password value={keyPass} onChange={(e) => setKeyPass(e.target.value)} autoComplete="new-password" />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-
-                  <Form.Item label="密钥别名 alias">
-                    <Space.Compact style={{ width: "100%" }}>
-                      <Select
-                        style={{ flex: 1 }}
-                        showSearch
-                        allowClear
-                        mode={aliases.length ? undefined : "tags"}
-                        value={alias ? (aliases.length ? alias : [alias]) : undefined}
-                        onChange={(v) => setAlias(Array.isArray(v) ? String(v[v.length - 1] ?? "") : String(v ?? ""))}
-                        options={aliases.map((a) => ({ value: a, label: a }))}
-                        placeholder="keytool -list 读取，或直接输入"
-                      />
-                      <Button onClick={probeAliases} disabled={busy}>
-                        读取别名
-                      </Button>
-                    </Space.Compact>
-                  </Form.Item>
-
-                  <Form.Item style={{ marginBottom: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <Checkbox checked={saveProfile} onChange={(e) => setSaveProfile(e.target.checked)}>
-                        保存签名
-                      </Checkbox>
-                      <Space.Compact style={{ flex: 1 }}>
-                        <Input
-                          value={profileName}
-                          onChange={(e) => setProfileName(e.target.value)}
-                          placeholder="配置名称（下次可一键选用）"
-                          disabled={!saveProfile || busy}
-                        />
-                        <Button onClick={saveCurrentProfile} disabled={!saveProfile || busy}>
-                          立即保存
-                        </Button>
-                      </Space.Compact>
+                  {activeProfile && (
+                    <div className="profile-summary-card">
+                      <div className="profile-summary-main">
+                        <div className="profile-summary-tags">
+                          <Tag color="blue" bordered={false} style={{ fontWeight: 600 }}>
+                            {activeProfile.name}
+                          </Tag>
+                          <Tag bordered={false}>别名: {activeProfile.alias}</Tag>
+                          <Tooltip title="口令经 Windows DPAPI 本机物理级加密隔离，运行签名时内存直通">
+                            <Tag color="cyan" bordered={false}>
+                              DPAPI 安全加密
+                            </Tag>
+                          </Tooltip>
+                        </div>
+                      </div>
+                      <div className="profile-summary-path" title={activeProfile.keystorePath}>
+                        Keystore: {activeProfile.keystorePath}
+                      </div>
                     </div>
-                  </Form.Item>
+                  )}
                 </>
-              ) : (
-                <Form.Item label="已配置签名" style={{ marginBottom: 0 }}>
+              )
+            ) : (
+              <>
+                <Form.Item label="签名文件（.keystore / .jks / .p12）" style={{ marginBottom: 12 }}>
+                  <Space.Compact style={{ width: "100%" }}>
+                    <Input
+                      value={ks}
+                      onChange={(e) => setKs(e.target.value)}
+                      placeholder="C:\path\to\release.keystore"
+                      disabled={busy}
+                    />
+                    <Button onClick={pickKeystore} disabled={busy}>
+                      选择
+                    </Button>
+                  </Space.Compact>
+                </Form.Item>
+
+                <Row gutter={16}>
+                  <Col span={12}>
+                    <Form.Item label="密钥库密码" style={{ marginBottom: 12 }}>
+                      <Input.Password
+                        value={storePass}
+                        onChange={(e) => setStorePass(e.target.value)}
+                        autoComplete="new-password"
+                        disabled={busy}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item
+                      label="密钥密码"
+                      style={{ marginBottom: 12 }}
+                      tooltip="若私钥密码与密钥库密码相同，可直接留空"
+                    >
+                      <Input.Password
+                        value={keyPass}
+                        onChange={(e) => setKeyPass(e.target.value)}
+                        placeholder="留空 = 同密钥库密码"
+                        autoComplete="new-password"
+                        disabled={busy}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                <Form.Item label="密钥别名 alias" style={{ marginBottom: 12 }}>
+                  <Space.Compact style={{ width: "100%" }}>
+                    <Select
+                      style={{ flex: 1 }}
+                      showSearch
+                      allowClear
+                      mode={aliases.length ? undefined : "tags"}
+                      value={alias ? (aliases.length ? alias : [alias]) : undefined}
+                      onChange={(v) =>
+                        setAlias(Array.isArray(v) ? String(v[v.length - 1] ?? "") : String(v ?? ""))
+                      }
+                      options={aliases.map((a) => ({ value: a, label: a }))}
+                      placeholder="keytool 读取或直接输入别名"
+                      disabled={busy}
+                    />
+                    <Button onClick={probeAliases} disabled={busy || !ks || !storePass}>
+                      读取别名
+                    </Button>
+                  </Space.Compact>
+                </Form.Item>
+
+                <Form.Item style={{ marginBottom: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <Checkbox
+                      checked={saveProfile}
+                      onChange={(e) => setSaveProfile(e.target.checked)}
+                      disabled={busy}
+                    >
+                      保存此签名配置
+                    </Checkbox>
+                    <Space.Compact style={{ flex: 1 }}>
+                      <Input
+                        value={profileName}
+                        onChange={(e) => setProfileName(e.target.value)}
+                        placeholder="配置名称（下次可一键选用）"
+                        disabled={!saveProfile || busy}
+                      />
+                      <Button
+                        onClick={saveCurrentProfile}
+                        disabled={!saveProfile || busy || !ks || !alias || !storePass}
+                      >
+                        立即保存
+                      </Button>
+                    </Space.Compact>
+                  </div>
+                </Form.Item>
+              </>
+            )}
+          </Form>
+        </Section>
+
+        {/* 步骤 3：签名策略与高级选项 */}
+        <Section
+          title={
+            <span className="sign-step-head">
+              <span className="sign-step-num subtle">3</span>
+              签名策略与优化选项
+            </span>
+          }
+          desc="选择 APK 签名方案（V1/V2/V3），并可选进行 zipalign 4字节对齐及 V4 签名。"
+        >
+          <Form layout="vertical">
+            <Row gutter={16}>
+              <Col span={14}>
+                <Form.Item label="签名策略" style={{ marginBottom: 0 }}>
                   <Select
-                    value={profileId}
-                    onChange={setProfileId}
-                    options={profileOptions}
-                    placeholder="选择本机已保存的签名配置"
-                    notFoundContent="暂无配置，可在「使用指定文件」里保存一条"
+                    value={strategy}
+                    onChange={setStrategy}
+                    options={strategies}
+                    disabled={busy}
                   />
                 </Form.Item>
-              )}
-            </FieldGroup>
+              </Col>
+              <Col span={10}>
+                <Form.Item label="附加优化选项" style={{ marginBottom: 0 }}>
+                  <Space size={16} style={{ height: 32, display: "flex", alignItems: "center" }}>
+                    <span className="switch-label">
+                      zipalign 对齐
+                      <Switch size="small" checked={zipalignOn} onChange={setZipalignOn} disabled={busy} />
+                    </span>
+                    <span className="switch-label">
+                      V4 增量
+                      <Switch size="small" checked={v4} onChange={setV4} disabled={busy} />
+                    </span>
+                  </Space>
+                </Form.Item>
+              </Col>
+            </Row>
           </Form>
+        </Section>
 
-          <div className="row-actions section-actions">
-            <Button type="primary" size="large" onClick={runQueue} loading={busy}>
-              开始签名
+        {/* 底部常驻主操作面板 */}
+        <div className="sign-actions-card">
+          <div className="sign-actions-left">
+            <Button
+              type="primary"
+              size="large"
+              onClick={runQueue}
+              loading={busy}
+              disabled={!queue.length && !apkInput.trim()}
+            >
+              开始批量签名 {queue.length ? `(${queue.length})` : ""}
             </Button>
             <Button onClick={() => setQueue([])} disabled={busy || !queue.length}>
               清空队列
             </Button>
-            <Button onClick={() => setLogs([])} disabled={!logs.length}>
-              清空日志
-            </Button>
           </div>
-        </Section>
 
-        <Section
-          title="执行日志"
-          desc="zipalign → apksigner sign → apksigner verify 自检，逐行回显。"
-          extra={<span className="text-faint">{logs.length ? `${logs.length} 行` : "等待任务"}</span>}
-        >
-          <LogConsole lines={logs} />
-        </Section>
+          <div className="sign-actions-summary">
+            {queue.length ? (
+              <span>
+                待签 <b>{queue.length}</b> 个文件
+              </span>
+            ) : (
+              <span className="text-faint">请在上方添加待签 APK</span>
+            )}
+            {mode === "profile" && activeProfile ? (
+              <Tag color="blue" bordered={false}>
+                {activeProfile.name}
+              </Tag>
+            ) : null}
+          </div>
+        </div>
       </div>
 
-      {/* ---------- 右：队列 + APK 信息 + 已存配置 ---------- */}
+      {/* ============================================================
+       * 右栏：任务队列 + 联动工作台 (Tabs: APK 属性检查 / 实时执行日志)
+       * ============================================================ */}
       <div className="stack">
+        {/* 待签任务队列 */}
         <Section
-          title="APK 队列"
-          desc="点击文件名查看包信息与现有签名方案。"
+          title="待签任务队列"
+          desc="点击文件行可高亮并在下方查看包属性与现有签名。"
           extra={
             queue.length ? (
               <span className="queue-stats">
@@ -464,114 +611,128 @@ export default function SignPage() {
           }
         >
           {queue.length === 0 ? (
-            <div className="empty-hint">队列为空</div>
+            <div className="empty-hint">暂无待签文件，请在左侧添加 APK</div>
           ) : (
             <div className="file-list">
-              {queue.map((it) => (
-                <div className="file-row" key={it.path}>
-                  <span className="name" title={it.note || it.path} onClick={() => showInfo(it.path)} style={{ cursor: "pointer" }}>
-                    {baseName(it.path)}
-                  </span>
-                  {stateTag(it.state)}
-                  <button
-                    className="rm"
-                    type="button"
-                    title="移出队列"
-                    disabled={busy}
+              {queue.map((it) => {
+                const isSelected = preview === it.path;
+                return (
+                  <div
+                    className={`queue-file-row ${isSelected ? "selected" : ""}`}
+                    key={it.path}
                     onClick={() => {
-                      setQueue((q) => q.filter((x) => x.path !== it.path));
-                      if (preview === it.path) {
-                        setPreview(null);
-                        setInfo(null);
-                      }
+                      showInfo(it.path);
                     }}
                   >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
-
-        <Section title="APK 信息" desc={info ? `${baseName(info.path)} · ${fmtSize(info.sizeBytes)}` : "选择队列中的文件后显示"}>
-          {info ? (
-            <>
-              <dl className="kv">
-                <dt>包名</dt>
-                <dd>{info.package ?? "—"}</dd>
-                <dt>版本</dt>
-                <dd>
-                  {info.versionName ?? "—"} ({info.versionCode ?? "—"})
-                </dd>
-                <dt>minSdk</dt>
-                <dd>{info.minSdk ?? "—"}</dd>
-                <dt>targetSdk</dt>
-                <dd>{info.targetSdk ?? "—"}</dd>
-                <dt>现有签名</dt>
-                <dd>
-                  {info.schemes.length ? (
-                    info.schemes.map((s) => (
-                      <Tag key={s} color="green" bordered={false}>
-                        {s}
-                      </Tag>
-                    ))
-                  ) : (
-                    <span className="text-faint">未签名 / 验签失败</span>
-                  )}
-                </dd>
-                <dt>证书</dt>
-                <dd>{info.certDn ?? "—"}</dd>
-                <dt>SHA-256</dt>
-                <dd>{info.certSha256 ? info.certSha256.slice(0, 64) : "—"}</dd>
-              </dl>
-              {info.error && <p className="field-note note-err">{info.error}</p>}
-            </>
-          ) : (
-            <div className="empty-hint">选择一个 APK 后显示</div>
-          )}
-        </Section>
-
-        <Section
-          title="已保存签名配置"
-          desc={profiles.length ? `共 ${profiles.length} 条` : "暂无配置"}
-          extra={
-            <Tooltip title="口令以 Windows DPAPI 加密，仅本机当前用户可解密；导出/日志中永不出现">
-              <span className="text-faint">本机加密</span>
-            </Tooltip>
-          }
-        >
-          {profiles.length === 0 ? (
-            <div className="empty-hint">暂无配置</div>
-          ) : (
-            <div className="file-list">
-              {profiles.map((p) => (
-                <div className="file-row" key={p.id}>
-                  <span className="name" title={`${p.name} → ${p.keystorePath}`}>
-                    {p.name} <span className="text-faint">· {p.alias}</span>
-                  </span>
-                  <Popconfirm
-                    title={`删除配置「${p.name}」？`}
-                    okText="删除"
-                    cancelText="取消"
-                    onConfirm={() =>
-                      api
-                        .deleteProfile(p.id)
-                        .then(() => {
-                          reloadProfiles();
-                          if (profileId === p.id) setProfileId(undefined);
-                        })
-                        .catch((e) => message.error(String(e)))
-                    }
-                  >
-                    <button className="rm" type="button" title="删除配置">
+                    <div className="name" title={it.note || it.path}>
+                      {baseName(it.path)}
+                    </div>
+                    {stateTag(it.state)}
+                    <button
+                      className="rm"
+                      type="button"
+                      title="移出队列"
+                      disabled={busy}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQueue((q) => q.filter((x) => x.path !== it.path));
+                        if (preview === it.path) {
+                          setPreview(null);
+                          setInfo(null);
+                        }
+                      }}
+                    >
                       ✕
                     </button>
-                  </Popconfirm>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           )}
+        </Section>
+
+        {/* 联动工作台：选项卡二合一（属性检查 / 实时执行日志） */}
+        <Section
+          title="联动工作台"
+          desc="查看当前选中 APK 的包体属性，或观察构建命令与验签日志。"
+          extra={
+            activeWorkbenchTab === "logs" && logs.length > 0 ? (
+              <Button size="small" type="link" onClick={() => setLogs([])}>
+                清空日志
+              </Button>
+            ) : null
+          }
+        >
+          <Tabs
+            className="workbench-card"
+            activeKey={activeWorkbenchTab}
+            onChange={(k) => setActiveWorkbenchTab(k as "info" | "logs")}
+            items={[
+              {
+                key: "info",
+                label: "📦 APK 属性与签名检查",
+                children: info ? (
+                  <>
+                    <dl className="kv">
+                      <dt>文件</dt>
+                      <dd title={info.path}>
+                        {baseName(info.path)} · {fmtSize(info.sizeBytes)}
+                      </dd>
+                      <dt>包名</dt>
+                      <dd>{info.package ?? "—"}</dd>
+                      <dt>版本</dt>
+                      <dd>
+                        {info.versionName ?? "—"} ({info.versionCode ?? "—"})
+                      </dd>
+                      <dt>minSdk / targetSdk</dt>
+                      <dd>
+                        {info.minSdk ?? "—"} / {info.targetSdk ?? "—"}
+                      </dd>
+                      <dt>现有签名</dt>
+                      <dd>
+                        {info.schemes.length ? (
+                          info.schemes.map((s) => (
+                            <Tag key={s} color="green" bordered={false}>
+                              {s}
+                            </Tag>
+                          ))
+                        ) : (
+                          <span className="text-faint">未签名 / 验签失败</span>
+                        )}
+                      </dd>
+                      <dt>证书 DN</dt>
+                      <dd>{info.certDn ?? "—"}</dd>
+                      <dt>SHA-256</dt>
+                      <dd>{info.certSha256 ? info.certSha256.slice(0, 64) : "—"}</dd>
+                    </dl>
+                    {info.error && <p className="field-note note-err">{info.error}</p>}
+                  </>
+                ) : (
+                  <div className="empty-hint">在上方队列中点击任一 APK 查看属性与现有签名</div>
+                ),
+              },
+              {
+                key: "logs",
+                label: (
+                  <span>
+                    🖥️ 实时执行日志{" "}
+                    {logs.length > 0 && (
+                      <Badge
+                        count={logs.length}
+                        overflowCount={999}
+                        style={{ backgroundColor: "#94a3b8", marginLeft: 4 }}
+                      />
+                    )}
+                  </span>
+                ),
+                children: (
+                  <div>
+                    <LogConsole lines={logs} />
+                  </div>
+                ),
+              },
+            ]}
+          />
         </Section>
       </div>
     </PageGrid>
