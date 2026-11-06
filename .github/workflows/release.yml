@@ -116,6 +116,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          tagName: 'v__VERSION__'
+          releaseName: 'AndroidSignTool v__VERSION__'
           releaseBody: 'Android APK 签名工具 Windows 版'
           includeUpdaterJson: true
           updaterJsonKeepUniversal: true

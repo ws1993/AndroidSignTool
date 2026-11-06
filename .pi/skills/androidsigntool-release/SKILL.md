@@ -136,3 +136,5 @@ powershell -File scripts\release.ps1 -Version 0.1.0 -Retag        # 同号重发
     ```
     它会先本地试签验口令，通过才写 Secret，写完即退出（不推标签），再由 `release.ps1 -Version 0.1.0` 触发发布。失败会在**写任何 Secret 之前**中止，故可反复输入直到通过。
     > 注：该本地试签同时完成**两件事**——口令能解开私钥 + 试签产物的 keyId 与 `tauri.conf.json` 配置的 pubkey（`99660971DE1397D0`）同源。故 `-SetupSecrets` 一次通过即代表签名链完整可用。私钥是 `ed25sk…` 加密格式，armor 首行不含 keyId，因此无法在不知道口令的情况下静态验配对，只能靠这条试签。
+13. **tauri-action 缺 `tagName` 会「静默不上传」且 Run 仍然绿**：v0.1.0 第三次发版（Run 42172519310）口令已对、`.exe`(34.95 MiB) 与 `.exe.sig` 都已产出，日志里却是 `No releaseId or tagName provided, skipping all uploads...` → **没有 Release**，退出码却为 0。已在 `with:` 补 `tagName: 'v__VERSION__'` 与 `releaseName`。教训：**不能只看 CI 绿灯判定发版成功**，必须断言 Release 资产——`release.ps1` 步骤 5 的产物断言正是为此而设（缺 `latest.json`/`.exe`/`.sig` 任一即抛错）。
+14. **注意 `workflow_dispatch` 现在也会发布**：`tagName` 用了 `__VERSION__` 占位符，手动触发时会以当前 `tauri.conf.json` 版本建/复用标签并发布 Release。想纯试跑流水线请用 `release.ps1 -Version X.Y.Z -DryRun`（全程不写远端）。
