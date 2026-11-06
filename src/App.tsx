@@ -39,7 +39,7 @@ export default function App() {
       <header className="topbar">
         <div className="wordmark">
           <b>APK SIGN TOOL</b>
-          <span className="ver">v0.1.0</span>
+          <span className="ver">v0.1.1</span>
         </div>
         <nav className="tabs">
           {TABS.map((t) => (
